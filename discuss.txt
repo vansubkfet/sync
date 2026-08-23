@@ -1,0 +1,9684 @@
+tôi có tài liệu hướng dẫn sử dụng một phần mềm phương án kinh doanh trước đây trong attachment. bây h tôi muốn xây dựng một version mới chạy trên nền web (client -server) thay vì chạy local. mục tiêu tôi hướng đến là có thể adapt với sự thay đổi của khách hàng tiềm năng một cách nhanh chóng, dễ dàng maintain và mở rộng. hỗ trợ multi tenancy. và có thể adapt với các business case hay business domain khác nhau từ tập khách hàng tiềm năng của tôi. bạn hãy phân tích những yêu cầu của tôi và đề xuất cho tôi cách tiếp cận phù hợp. tất nhiên trong quá trình thảo luận bạn có thể hỏi tôi bất kỳ thông tin gì để cung cấp thêm thông tin để đưa đến giải pháp toàn diện nhất.
+
+Có. Tôi đã đọc tài liệu PAKD 2017 bạn đính kèm. Theo tôi, đây không nên được xem đơn thuần là bài toán “viết lại phần mềm desktop thành web”. Nếu mục tiêu của bạn là:
+
+Web client–server.
+Multi-tenant.
+Khách hàng thay đổi quy trình có thể adapt nhanh.
+Có thể triển khai cho nhiều business domain khác nhau.
+Dễ maintain và mở rộng.
+Có khả năng hình thành một platform thay vì chỉ một phần mềm PAKD.
+
+thì kiến trúc nên được thiết kế theo hướng Configurable Business Application Platform, trong đó PAKD chỉ là một application/domain module chạy trên platform.
+
+Đây là điểm quan trọng nhất trong toàn bộ bài toán.
+
+1. Trước hết: phần mềm hiện tại thực chất đang giải quyết bài toán gì?
+
+Nhìn vào tài liệu, PAKD cũ không chỉ có CRUD.
+
+Nó có ít nhất 6 nhóm capability:
+
+Capability	Trong PAKD hiện tại
+Master data	NCC, hàng hóa, ngành hàng, vùng, hợp đồng
+Transaction	Tạo phương án kinh doanh
+Dynamic business rules	24 loại phương án với logic khác nhau
+Workflow	TPKD → TĐG → KT → GĐKD → TGĐ
+Collaboration	Comment, To, note, trả về
+Document	File đính kèm, in, PDF, hợp đồng
+Integration	Dsmart, Excel
+Approval	Approve / Reject / Return
+Audit	Lịch sử phương án, lịch sử giá
+Notification	SMS
+Reporting	Excel, báo cáo tổng hợp
+Authorization	Role + department + user
+
+Ví dụ, tài liệu mô tả tới 24 trạng thái/dạng phương án khác nhau.
+
+Và workflow cũng không phải một workflow tuyến tính đơn giản. Có những loại đi:
+
+Kinh doanh
+    ↓
+TPKD
+    ↓
+TĐG
+    ↓
+TCKT
+    ↓
+GĐKD
+    ↓
+TGĐ
+
+nhưng một số loại lại bỏ qua các bước:
+
+Kinh doanh
+    ↓
+TPKD
+    ↓
+GĐKD
+
+hoặc:
+
+Kinh doanh
+    ↓
+TPKD
+    ↓
+KTTH
+
+đối với "PA mở".
+
+Do đó, workflow engine + rules engine sẽ là hai thành phần cực kỳ quan trọng của version mới.
+
+2. Vấn đề lớn nhất của hệ thống cũ
+
+Có một dấu hiệu rất rõ trong tài liệu:
+
+Phần mềm được cài đặt tại nhiều phòng ban, dữ liệu tập trung tại máy chủ và phân quyền theo từng user/role.
+
+Kiến trúc này phù hợp với năm 2017, nhưng sẽ trở thành bottleneck khi bạn muốn biến nó thành sản phẩm/platform.
+
+Đặc biệt, business logic hiện đang bị "đóng cứng" trong application.
+
+Ví dụ:
+
+PA type = "Giảm giá nhập"
+        ↓
+skip TCKT
+skip TĐG
+        ↓
+GĐKD approval
+
+Trong hệ thống cũ, khả năng cao logic này nằm trong code.
+
+Nếu khách hàng mới nói:
+
+"Ở công ty tôi, trường hợp này phải qua Risk trước rồi mới tới Finance."
+
+thì nếu architecture cũ:
+
+Customer request
+      ↓
+Developer sửa code
+      ↓
+Build
+      ↓
+Test
+      ↓
+Deploy
+
+Đây chính là thứ bạn muốn loại bỏ.
+
+3. Tôi đề xuất thay đổi mindset
+
+Đừng xây:
+
+PAKD Web Application
+
+mà xây:
+
+Business Process Platform
+        │
+        ├── PAKD Application
+        ├── Procurement Application
+        ├── Contract Approval
+        ├── Pricing Approval
+        ├── Expense Approval
+        ├── HR Request
+        └── Customer-specific Applications
+
+Trong đó:
+
+                 PLATFORM
+                     │
+       ┌─────────────┼─────────────┐
+       │             │             │
+ Identity        Workflow        Rules
+       │             │             │
+ Tenant           Form           Document
+       │             │             │
+ Authorization   Approval       Notification
+       │             │             │
+ Audit           Integration     Reporting
+       └─────────────┼─────────────┘
+                     │
+              DOMAIN APPLICATION
+                     │
+                   PAKD
+
+PAKD trở thành một "domain package" trên platform.
+
+Đây là architecture mà tôi nghĩ phù hợp nhất với mục tiêu dài hạn của bạn.
+
+4. Kiến trúc tổng thể tôi khuyến nghị
+
+Ở phase đầu, tôi không khuyến nghị microservices.
+
+Tôi sẽ chọn:
+
+Modular Monolith + Configuration-driven Architecture + Event-driven integration
+
+Ví dụ:
+
+                    Web Browser
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │   Web UI     │
+                  │ React/Next   │
+                  └──────┬───────┘
+                         │ HTTPS
+                         ▼
+              ┌───────────────────────┐
+              │       API Layer       │
+              │ REST / GraphQL        │
+              └───────────┬───────────┘
+                          │
+       ┌──────────────────┼──────────────────┐
+       │                  │                  │
+       ▼                  ▼                  ▼
+ ┌───────────┐     ┌────────────┐     ┌────────────┐
+ │ Identity  │     │ Workflow   │     │ Rule       │
+ │ & Tenant  │     │ Engine     │     │ Engine     │
+ └───────────┘     └────────────┘     └────────────┘
+       │                  │                  │
+       └──────────────────┼──────────────────┘
+                          │
+              ┌───────────▼───────────┐
+              │      Domain Layer     │
+              │                       │
+              │ PAKD                  │
+              │ Customer-specific     │
+              │ modules               │
+              └───────────┬───────────┘
+                          │
+        ┌─────────────────┼─────────────────┐
+        ▼                 ▼                 ▼
+   PostgreSQL        Object Storage      Redis
+        │
+        ▼
+     Outbox
+        │
+        ▼
+   Message Broker
+        │
+   ┌────┼────────────┐
+   ▼    ▼            ▼
+Dsmart SMS       Email/ERP
+5. Multi-tenancy phải được thiết kế ngay từ đầu
+
+Đây là một trong những điểm tôi không khuyến nghị làm sau.
+
+Bạn nên có conceptual model:
+
+Platform
+   │
+   ├── Tenant A
+   │      ├── Users
+   │      ├── Departments
+   │      ├── Roles
+   │      ├── Workflows
+   │      ├── Forms
+   │      ├── Rules
+   │      └── Data
+   │
+   ├── Tenant B
+   │      ├── Users
+   │      ├── Departments
+   │      ├── Roles
+   │      ├── Workflows
+   │      ├── Forms
+   │      ├── Rules
+   │      └── Data
+   │
+   └── Tenant C
+
+Tôi nghiêng về mô hình:
+
+Shared database + tenant_id
+
+Ví dụ:
+
+purchase_proposals
+------------------
+id
+tenant_id
+proposal_no
+status
+created_by
+created_at
+...
+
+và:
+
+workflow_instances
+------------------
+id
+tenant_id
+workflow_definition_id
+business_object_id
+current_state
+...
+
+Ưu điểm:
+
+dễ vận hành;
+dễ scale;
+dễ migration;
+dễ reporting;
+phù hợp SaaS.
+
+Sau này những tenant enterprise đặc biệt có thể hỗ trợ:
+
+Tenant A → shared DB
+Tenant B → shared DB
+Tenant C → dedicated DB
+
+Tức là tenant isolation strategy có thể configurable.
+
+6. Nhưng multi-tenancy không chỉ là tenant_id
+
+Đây là một lỗi architecture rất phổ biến.
+
+Bạn thực tế cần isolation ở nhiều tầng:
+
+Tenant
+ │
+ ├── User
+ ├── Department
+ ├── Role
+ ├── Permission
+ ├── Data
+ ├── Workflow
+ ├── Form
+ ├── Rule
+ ├── Document
+ ├── Integration
+ └── Configuration
+
+Ví dụ:
+
+Tenant A:
+
+Approval:
+Sales Manager
+ → Finance
+ → Risk
+ → CEO
+
+Tenant B:
+
+Approval:
+Sales Manager
+ → Risk
+ → CFO
+
+Tenant C:
+
+Approval:
+Sales Manager
+ → CEO
+
+Không nên hard-code workflow của PAKD vào application.
+
+7. Thành phần quan trọng nhất: Workflow Engine
+
+Đây là nơi tôi nghĩ chúng ta nên đầu tư nhiều nhất.
+
+Thay vì code:
+
+if proposal.type == TYPE_3:
+    next = SALES_DIRECTOR
+
+elif proposal.type == TYPE_21:
+    next = SALES_MANAGER
+
+else:
+    next = RISK
+
+hãy có:
+
+Workflow Definition
+
+Ví dụ:
+
+workflow:
+  name: standard_business_proposal
+
+states:
+  - draft
+  - sales_manager_review
+  - risk_review
+  - finance_review
+  - business_director_review
+  - ceo_review
+  - approved
+  - rejected
+
+transitions:
+
+  - from: draft
+    to: sales_manager_review
+
+  - from: sales_manager_review
+    to: risk_review
+
+  - from: risk_review
+    to: finance_review
+
+  - from: finance_review
+    to: business_director_review
+
+  - from: business_director_review
+    to: ceo_review
+
+  - from: ceo_review
+    to: approved
+
+Sau đó một workflow khác:
+
+workflow:
+  name: open_proposal
+
+transitions:
+
+  - from: draft
+    to: sales_manager_review
+
+  - from: sales_manager_review
+    to: business_director_review
+    condition:
+      proposal.is_open == true
+
+  - from: business_director_review
+    to: ceo_review
+    action: notify_only
+
+Như vậy business user có thể thay đổi workflow mà không cần sửa source code.
+
+8. Nhưng tôi không khuyên bạn tự biến workflow engine thành BPMN engine ngay lập tức
+
+Đây là một quyết định architecture khá quan trọng.
+
+Có 3 mức:
+
+Level 1 — State machine
+Draft
+ ↓
+Review
+ ↓
+Approved
+Level 2 — Configurable workflow
+conditions
+roles
+parallel approval
+conditional routing
+return
+delegation
+SLA
+Level 3 — Full BPMN
+Start
+  ↓
+Task
+  ↓
+Gateway
+ ┌──────┴──────┐
+ ↓             ↓
+Finance      Risk
+ ↓             ↓
+ └──────┬──────┘
+        ↓
+       CEO
+
+Tôi khuyên:
+
+Version 1: Level 2
+
+nhưng thiết kế abstraction để sau này có thể hỗ trợ BPMN.
+
+Lý do: PAKD của bạn thực tế cần workflow tương đối phức tạp nhưng chưa nhất thiết cần toàn bộ BPMN 2.0.
+
+Nếu ngay từ đầu đưa Camunda/Flowable/Temporal vào mọi thứ, platform có thể trở nên quá phức tạp.
+
+9. Rules Engine là component thứ hai
+
+Workflow trả lời:
+
+Ai xử lý tiếp theo?
+
+Rules trả lời:
+
+Tại sao đi theo nhánh này?
+
+Ví dụ:
+
+IF
+    proposal.discount > 20%
+AND
+    supplier.payment_term > 60 days
+
+THEN
+    require Risk approval
+
+hoặc:
+
+IF
+    proposal.type == "PROMOTION"
+AND
+    supplier_funding == 100%
+
+THEN
+    workflow = OPEN_PROPOSAL
+
+Điều này rất quan trọng vì tài liệu hiện tại có nhiều business rule.
+
+Ví dụ "PA mở" chỉ cần TPKD phê duyệt và sau đó các cấp cao hơn chỉ xem.
+
+Tôi sẽ tách:
+
+Workflow
+     +
+Business Rules
+     +
+Authorization
+
+thay vì trộn chúng vào nhau.
+
+10. Form cũng phải configurable
+
+Đây là điểm cực kỳ quan trọng nếu bạn muốn phục vụ nhiều business domain.
+
+Hiện tại PAKD có những field như:
+
+Tên hàng
+Xuất xứ
+Hình thức hợp đồng
+Mã ngành hàng
+Hiệu lực giá bán
+Hiệu lực giá nhập
+Giá nhập
+Tỷ lệ lãi
+Giá bán theo vùng
+Chi phí
+Kiến nghị
+Tài liệu
+...
+
+Tài liệu mô tả rõ các thông tin này được nhập trong giao diện lập phương án.
+
+Đừng hard-code UI:
+
+<Input name="productName" />
+<Input name="origin" />
+<Input name="margin" />
+
+mà có:
+
+{
+  "form": {
+    "name": "business_proposal",
+    "version": 3,
+    "fields": [
+      {
+        "key": "product_name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "margin",
+        "type": "number",
+        "required": true
+      },
+      {
+        "key": "supplier",
+        "type": "reference",
+        "entity": "supplier"
+      }
+    ]
+  }
+}
+
+UI render từ schema:
+
+Form Schema
+     ↓
+Form Renderer
+     ↓
+Web UI
+
+Đây chính là thứ giúp bạn:
+
+"Customer thay đổi requirement → admin configuration → không cần developer."
+
+11. Tôi sẽ xây một "Form Builder"
+
+Về lâu dài, admin có thể nhìn thấy:
+
+Business Proposal
+─────────────────────────────
+
+[ Supplier           ▼ ]
+
+[ Proposal Type      ▼ ]
+
+[ Product            ]
+
+[ Import Price       ]
+
+[ Selling Price      ]
+
+[ Margin              ]
+
+[ Effective Date     ]
+
+[ Attachment         ]
+
+─────────────────────────────
+       Submit
+
+và có thể cấu hình:
+
+Add field
+Remove field
+Required
+Visibility
+Validation
+Default value
+Lookup
+Calculation
+Conditional display
+
+Ví dụ:
+
+IF Proposal Type = Promotion
+
+THEN show:
+
+Promotion Start
+Promotion End
+Promotion Discount
+Supplier Funding %
+12. Domain model cũng không nên hard-code quá mức
+
+Tôi đề xuất chia thành:
+
+Platform entities
+Tenant
+User
+Role
+Permission
+Department
+Team
+Workflow
+WorkflowInstance
+Task
+Comment
+Attachment
+Notification
+AuditLog
+Domain entities
+
+PAKD:
+
+Supplier
+Product
+Contract
+BusinessProposal
+ProposalItem
+Promotion
+Price
+PriceHistory
+PaymentStatement
+
+Customer khác:
+
+PurchaseRequest
+PurchaseOrder
+Invoice
+ExpenseRequest
+Contract
+EmployeeRequest
+
+Như vậy:
+
+Platform
+   │
+   ├── PAKD domain
+   │
+   ├── Procurement domain
+   │
+   └── HR domain
+13. Có một abstraction tôi đặc biệt khuyên bạn xây
+
+Đó là:
+
+Business Object + Process
+
+Ví dụ:
+
+Business Object:
+    BusinessProposal #PA000123
+
+Process:
+    ProposalApproval
+
+Một process instance:
+
+ProcessInstance
+----------------
+id
+tenant_id
+process_definition_id
+business_object_type
+business_object_id
+status
+started_at
+completed_at
+
+Khi đó platform không cần biết:
+
+BusinessProposal
+PurchaseRequest
+Contract
+ExpenseRequest
+
+là gì.
+
+Nó chỉ biết:
+
+Business Object
+      ↓
+Process
+      ↓
+Tasks
+      ↓
+Approvals
+
+Đây chính là abstraction giúp bạn mở rộng sang domain khác.
+
+14. Approval nên là generic capability
+
+PAKD hiện tại có:
+
+Approve
+Reject
+Return
+Comment
+To:
+
+Hãy biến thành platform capability:
+
+Approval Task
+
+Actions:
+ ├── Approve
+ ├── Reject
+ ├── Return
+ ├── Delegate
+ ├── Request information
+ └── Comment
+
+Sau đó:
+
+PAKD approval
+Contract approval
+Purchase approval
+Expense approval
+HR approval
+
+đều sử dụng cùng một engine.
+
+15. Comment cũng nên trở thành platform capability
+
+Không nên có:
+
+PAKDComment
+
+mà:
+
+Comment
+-----
+tenant_id
+object_type
+object_id
+author_id
+content
+mentions
+visibility
+created_at
+
+Ví dụ:
+
+@FinanceManager please review margin
+
+hoặc:
+
+To: Finance Manager
+
+Từ đó có thể xây:
+
+@mention
+notification
+email
+SMS
+in-app notification
+16. Audit trail phải là first-class citizen
+
+PAKD hiện tại đã có lịch sử phương án.
+
+Version mới nên audit ở cấp platform:
+
+AuditLog
+
+tenant_id
+actor
+action
+object_type
+object_id
+before
+after
+timestamp
+ip
+user_agent
+correlation_id
+
+Ví dụ:
+
+17:01
+Su
+
+Proposal PA000123
+Status:
+Finance Review
+→
+CEO Review
+
+hoặc:
+
+Price:
+100,000
+→
+95,000
+
+Changed by:
+user01
+
+Reason:
+Promotion
+
+Đặc biệt với hệ thống approval, auditability quan trọng không kém workflow.
+
+17. Document/File phải tách khỏi database
+
+PAKD có attachment và tài liệu liên quan đến phương án.
+
+Tôi sẽ dùng:
+
+PostgreSQL
+    │
+    └── metadata
+
+Object Storage
+    │
+    └── actual files
+
+Ví dụ:
+
+attachments
+-----------
+id
+tenant_id
+object_type
+object_id
+file_name
+storage_key
+mime_type
+size
+checksum
+uploaded_by
+created_at
+
+Storage:
+
+S3 / MinIO / Azure Blob
+
+Không lưu binary trực tiếp trong PostgreSQL trừ những trường hợp rất đặc biệt.
+
+18. Integration layer cũng phải trở thành platform
+
+PAKD hiện tại phụ thuộc Dsmart khá mạnh.
+
+Ví dụ:
+
+lấy danh sách hàng từ Dsmart
+
+và:
+
+đồng bộ giá bán lẻ sang Dsmart.
+
+Nếu hard-code:
+
+PAKD → Dsmart
+
+platform sẽ khó mở rộng.
+
+Nên:
+
+                 Integration Layer
+                        │
+       ┌────────────────┼───────────────┐
+       ▼                ▼               ▼
+     Dsmart             ERP            SAP
+       │
+       ▼
+  Connector API
+
+Mỗi integration:
+
+Connector
+ ├── authentication
+ ├── inbound mapping
+ ├── outbound mapping
+ ├── retry
+ ├── error handling
+ ├── rate limit
+ └── monitoring
+19. Đừng để external system gọi trực tiếp domain logic
+
+Ví dụ Dsmart update price:
+
+Không nên:
+
+Dsmart
+  ↓
+PAKD database
+
+mà:
+
+Dsmart
+  ↓
+Integration API
+  ↓
+Integration Service
+  ↓
+Domain Service
+  ↓
+Business Rule
+  ↓
+Database
+
+Điều này cực kỳ quan trọng khi scale platform.
+
+20. Reporting cũng cần abstraction
+
+Hiện tại PAKD có Excel export và tổng hợp số liệu.
+
+Đừng xây:
+
+exportPAKDToExcel()
+
+mà:
+
+Reporting Engine
+
+Ví dụ:
+
+Report Definition
+      ↓
+Query
+      ↓
+Dataset
+      ↓
+Renderer
+
+        ├── Excel
+        ├── CSV
+        ├── PDF
+        └── Dashboard
+
+Sau này tenant có thể tự định nghĩa report.
+
+21. Kiến trúc frontend
+
+Tôi sẽ không làm UI quá generic kiểu:
+
+một giant dynamic form app.
+
+Thay vào đó:
+
+Application Shell
+│
+├── Navigation
+├── Notification
+├── User profile
+├── Search
+├── Task inbox
+│
+└── Domain UI
+     │
+     ├── Proposal
+     ├── Supplier
+     ├── Product
+     └── Reports
+
+Technology có thể là:
+
+React
++
+TypeScript
++
+Next.js
+
+hoặc React + Vite nếu bạn muốn frontend SPA thuần.
+
+Backend có thể:
+
+Python
+FastAPI
+SQLAlchemy
+PostgreSQL
+Redis
+
+hoặc Java/Spring Boot nếu team của bạn mạnh Java.
+
+Với background kỹ thuật của bạn, tôi nghiêng về:
+
+FastAPI + PostgreSQL + SQLAlchemy + React/TypeScript
+
+cho việc xây platform nhanh.
+
+22. Database architecture
+
+Tôi sẽ chia schema theo module, không phải một đống table chung:
+
+identity
+├── tenants
+├── users
+├── roles
+└── permissions
+
+workflow
+├── workflow_definitions
+├── workflow_versions
+├── workflow_instances
+├── tasks
+└── transitions
+
+form
+├── form_definitions
+├── form_versions
+└── form_submissions
+
+rule
+├── rule_definitions
+└── rule_versions
+
+document
+├── attachments
+└── documents
+
+audit
+└── audit_logs
+
+notification
+├── notifications
+└── notification_templates
+
+pakd
+├── proposals
+├── proposal_items
+├── suppliers
+├── products
+├── contracts
+└── prices
+
+Tôi rất khuyến nghị module boundary rõ ràng ngay cả khi vẫn là một application.
+
+23. Một điểm rất quan trọng: Versioning
+
+Nếu bạn muốn "adapt nhanh", configuration không thể chỉ overwrite.
+
+Ví dụ:
+
+Workflow v1
+
+đang được sử dụng bởi 500 proposal.
+
+Customer thay đổi:
+
+Workflow v2
+
+Các proposal cũ không được tự nhiên chạy theo v2.
+
+Do đó:
+
+Workflow Definition
+
+v1 ─────── existing instances
+ │
+ └── immutable
+
+v2 ─────── new instances
+
+Tương tự:
+
+Form v1
+Form v2
+
+Rule v1
+Rule v2
+
+Đây là một trong những nguyên tắc architecture quan trọng nhất của platform.
+
+24. Tôi sẽ xây Configuration Management
+
+Admin có thể quản lý:
+
+Tenant
+  │
+  ├── Business Domains
+  │
+  ├── Forms
+  │
+  ├── Workflows
+  │
+  ├── Rules
+  │
+  ├── Roles
+  │
+  ├── Permissions
+  │
+  ├── Notifications
+  │
+  ├── Integrations
+  │
+  └── Reports
+
+và có:
+
+Draft
+  ↓
+Validate
+  ↓
+Test
+  ↓
+Publish
+  ↓
+Active
+
+Không nên cho admin sửa trực tiếp configuration production.
+
+25. Một feature cực kỳ đáng làm: Workflow Simulator
+
+Đây sẽ là feature tạo khác biệt rất lớn cho platform của bạn.
+
+Ví dụ admin thay đổi:
+
+IF
+proposal.amount > 1 billion
+
+→ thêm CEO approval.
+
+Admin có thể bấm:
+
+▶ Test Workflow
+
+và nhập:
+
+Amount = 2,000,000,000
+Risk = HIGH
+Supplier = NEW
+
+platform chạy simulation:
+
+Sales Manager
+       ↓
+Risk
+       ↓
+Finance
+       ↓
+CEO
+
+và giải thích:
+
+CEO approval required because:
+
+amount > 1B
+
+Đây là cách biến một platform khó cấu hình thành một platform mà business user có thể thực sự sử dụng.
+
+26. Tôi cũng muốn bổ sung "Decision Table"
+
+Thay vì viết rule bằng code:
+
+if ...
+
+có thể có:
+
+Proposal Type	Amount	Supplier	Risk	Approval
+Normal	<100M	Existing	Low	Manager
+Normal	>100M	Existing	Low	Manager → Finance
+Normal	>1B	Any	Any	Manager → Finance → CEO
+Promotion	Any	Existing	Low	Manager
+Open	Any	Existing	Low	Manager
+
+Đây chính là hướng DMN/Decision Table.
+
+Với bài toán của bạn, tôi thấy DMN-like decision table có giá trị rất cao.
+
+27. Từ đó platform có thể hình thành một abstraction rất mạnh
+
+Tôi hình dung business configuration như:
+
+                 APPLICATION
+                     │
+              ┌──────┴──────┐
+              │             │
+           FORM          WORKFLOW
+              │             │
+              └──────┬──────┘
+                     │
+                   RULE
+                     │
+              ┌──────┴──────┐
+              │             │
+          APPROVAL       ACTION
+              │             │
+              └──────┬──────┘
+                     │
+                INTEGRATION
+
+Một business process mới về cơ bản chỉ cần định nghĩa:
+
+Data
++
+Form
++
+Workflow
++
+Rules
++
+Actions
++
+Permissions
+28. Ví dụ: PAKD chỉ là một configuration package
+
+Ví dụ:
+
+application:
+  key: pakd
+  name: Phương án kinh doanh
+
+entities:
+  - supplier
+  - product
+  - proposal
+  - contract
+
+forms:
+  - proposal_form
+  - commercial_terms
+  - payment_statement
+
+workflows:
+  - standard_proposal
+  - open_proposal
+  - promotion_proposal
+
+rules:
+  - proposal_routing
+  - approval_threshold
+  - margin_validation
+
+integrations:
+  - dsmart
+
+reports:
+  - proposal_report
+  - price_history
+  - payment_report
+
+Như vậy PAKD trở thành một application package.
+
+29. Sau đó bạn có thể build application thứ hai
+
+Ví dụ khách hàng nói:
+
+"Tôi muốn quản lý phê duyệt hợp đồng."
+
+Không cần xây application từ đầu.
+
+Chỉ cần:
+
+Contract Management
+
+Entity:
+    Contract
+
+Form:
+    Contract Form
+
+Workflow:
+    Contract Approval
+
+Rules:
+    Contract > 5B → CFO
+    Contract > 20B → CEO
+
+Documents:
+    Contract files
+
+Notifications:
+    Email + Teams
+
+Platform core không thay đổi.
+
+30. Đây mới là "product moat" của bạn
+
+Nếu bạn chỉ xây:
+
+PAKD web
+
+thì bạn đang cạnh tranh bằng:
+
+feature
+
+Nhưng nếu xây:
+
+Configurable Business Process Platform
+
+thì bạn cạnh tranh bằng:
+
+speed of customization
++
+workflow engine
++
+rule engine
++
+multi-tenancy
++
+integration framework
++
+audit
++
+reusable business components
+
+Ví dụ đối thủ cần:
+
+Customer request
+ ↓
+Analysis
+ ↓
+Developer
+ ↓
+Code
+ ↓
+QA
+ ↓
+Deploy
+
+Bạn muốn:
+
+Customer request
+ ↓
+Configure
+ ↓
+Validate
+ ↓
+Publish
+
+Đây mới thực sự phù hợp với mục tiêu bạn đặt ra.
+
+31. Nhưng có một cảnh báo rất lớn
+
+Đừng cố làm một "low-code platform" hoàn toàn generic ngay từ đầu.
+
+Đây là cái bẫy tôi nghĩ bạn rất dễ gặp.
+
+Nếu bạn bắt đầu bằng:
+
+Universal Entity Builder
+Universal Form Builder
+Universal Workflow Builder
+Universal Rule Engine
+Universal Query Builder
+Universal Report Builder
+Universal Permission Builder
+
+thì sau 6–12 tháng có thể bạn có một platform rất generic nhưng:
+
+không giải quyết tốt PAKD.
+
+Tôi đề xuất ngược lại:
+
+PAKD
+ ↓
+Extract common capabilities
+ ↓
+Platform Core
+ ↓
+Second business application
+ ↓
+Generalize
+
+Tức là:
+
+Product-first → Platform gradually
+
+thay vì:
+
+Platform-first → hope that PAKD fits.
+
+32. Roadmap tôi đề xuất
+Phase 0 — Reverse engineering
+
+Không code vội.
+
+Chúng ta map toàn bộ PAKD thành:
+
+Actors
+Entities
+Fields
+Business rules
+Workflow
+Permissions
+Documents
+Integrations
+Reports
+Notifications
+Audit
+
+Tài liệu hiện tại đã cung cấp khá nhiều thông tin về các actor và quyền của họ. Ví dụ nhân viên kinh doanh được lập/bổ sung PAKD và quản lý NCC; trưởng phòng nhận/xử lý/trả/chuyển PAKD; các phòng TĐG/TCKT có thể xem/comment; lãnh đạo có quyền approve/return.
+
+Phase 1 — PAKD Web MVP
+
+Xây:
+
+Authentication
+Tenant
+User
+Role
+Proposal
+Supplier
+Product
+Attachment
+Workflow
+Approval
+Comment
+Audit
+Notification
+
+Chưa cần generic quá nhiều.
+
+Phase 2 — Configurable
+
+Thêm:
+
+Dynamic Form
+Workflow Designer
+Rule Engine
+Decision Table
+Permission Configuration
+Notification Configuration
+Phase 3 — Integration Platform
+Dsmart Connector
+Excel
+Email
+SMS
+ERP
+REST API
+Webhooks
+Phase 4 — Platformization
+
+Sau khi PAKD chạy ổn:
+
+PAKD
+    ↓
+extract reusable capabilities
+    ↓
+Business Process Platform
+
+Sau đó thử application thứ hai.
+
+33. Một kiến trúc tôi sẽ đặc biệt tránh
+
+Tôi không khuyên:
+
+Frontend
+    ↓
+Generic API
+    ↓
+Generic CRUD Engine
+    ↓
+Database
+
+vì cuối cùng tất cả business logic sẽ nằm trong:
+
+if/else
+
+và dynamic JSON.
+
+Bạn sẽ có:
+
+"JSON-driven spaghetti."
+
+Thay vào đó:
+
+Platform Core
+       │
+       ├── generic infrastructure
+       │
+       └── domain modules
+               │
+               └── PAKD
+
+Generic ở đúng abstraction level, không phải generic mọi thứ.
+
+34. Kiến trúc tôi tạm chốt cho bài toán của bạn
+
+Nếu hiện tại phải đưa ra một blueprint, tôi sẽ chọn:
+
+                    ┌──────────────────────┐
+                    │      Web Client      │
+                    │ React + TypeScript   │
+                    └──────────┬───────────┘
+                               │
+                              API
+                               │
+              ┌────────────────▼────────────────┐
+              │          Application            │
+              │                                 │
+              │  Identity / Tenant              │
+              │  Authorization                  │
+              │  Workflow                       │
+              │  Rules                          │
+              │  Forms                          │
+              │  Approval                       │
+              │  Notification                   │
+              │  Document                       │
+              │  Audit                          │
+              │  Reporting                      │
+              │  Integration                    │
+              └────────────────┬────────────────┘
+                               │
+                    ┌──────────▼──────────┐
+                    │    Domain Modules   │
+                    │                     │
+                    │       PAKD          │
+                    │                     │
+                    │ Supplier            │
+                    │ Product             │
+                    │ Proposal            │
+                    │ Contract            │
+                    │ Pricing             │
+                    └──────────┬──────────┘
+                               │
+             ┌─────────────────┼─────────────────┐
+             ▼                 ▼                 ▼
+        PostgreSQL          Redis          Object Storage
+             │
+             ▼
+          Outbox
+             │
+             ▼
+        Message Broker
+             │
+       ┌─────┼────────┐
+       ▼     ▼        ▼
+    Dsmart  Email    SMS
+
+và deployment ban đầu:
+
+                    Internet
+                       │
+                  Load Balancer
+                       │
+              ┌────────┴────────┐
+              │                 │
+          App Instance 1    App Instance 2
+              │                 │
+              └────────┬────────┘
+                       │
+                 PostgreSQL
+                       │
+                    Redis
+                       │
+                  Object Storage
+
+Modular monolith trước, scale-out sau.
+
+35. Tôi muốn chúng ta làm một việc trước khi chọn technology
+
+Theo tôi, bước tiếp theo không nên là chọn FastAPI hay Spring, React hay Vue, PostgreSQL hay MongoDB.
+
+Chúng ta cần làm:
+
+"PAKD Domain Decomposition"
+
+Tôi đề xuất cùng bạn xây một blueprint gồm 10 artifact:
+
+01. Actor Model
+02. Tenant Model
+03. Domain Model
+04. Entity Relationship Model
+05. Workflow Model
+06. Business Rule Model
+07. Permission Model
+08. Form Model
+09. Integration Model
+10. Audit/Event Model
+
+Sau đó mới quyết định:
+
+Architecture
+      ↓
+Technology
+      ↓
+Database
+      ↓
+API
+      ↓
+Implementation
+36. Và tôi có một số câu hỏi rất quan trọng dành cho bạn
+
+Để tôi có thể đưa ra kiến trúc production-grade thực sự, thay vì architecture chung chung, tôi muốn bạn trả lời nhóm câu hỏi sau.
+
+A. Về khách hàng
+
+1. Bạn định biến hệ thống này thành:
+
+chỉ dành cho một công ty cụ thể;
+sản phẩm SaaS bán cho nhiều công ty;
+hay một platform triển khai on-premise cho từng khách hàng?
+
+2. "Multi-tenant" của bạn dự kiến là:
+
+1 customer = 1 company
+
+hay:
+
+1 customer
+ ├── Company A
+ ├── Company B
+ └── Company C
+B. Về customization
+
+3. Khi khách hàng nói:
+
+"Workflow của tôi khác PAKD"
+
+bạn muốn business admin tự cấu hình, hay vẫn chấp nhận developer tham gia?
+
+Ví dụ mục tiêu:
+
+Developer:
+    build platform
+
+Business Admin:
+    configure workflow
+    configure form
+    configure rule
+
+Nếu đây là mục tiêu, tôi sẽ thiết kế platform theo hướng mạnh hơn đáng kể.
+
+C. Về domain
+
+4. Những domain khác mà bạn đang nhắm tới ngoài PAKD là gì?
+
+Ví dụ:
+
+Procurement
+Contract
+HR
+Finance
+Sales
+Approval
+Inventory
+
+Câu này cực kỳ quan trọng vì nó quyết định abstraction của domain model.
+
+D. Về workflow
+
+5. Workflow có khả năng xuất hiện:
+
+Sequential
+Parallel approval
+Conditional branching
+Multiple approvers
+Delegation
+Escalation
+SLA
+Timeout
+Rework
+Versioning
+
+không?
+
+E. Về integration
+
+6. Dsmart hiện tại có:
+
+REST API
+SOAP
+Database access
+File exchange
+
+hay cơ chế khác?
+
+Đặc biệt, nếu hệ thống mới phải tiếp tục tích hợp Dsmart thì tôi muốn thiết kế anti-corruption layer ngay từ đầu.
+
+F. Về deployment
+
+7. Bạn muốn:
+
+Cloud SaaS
+
+hay:
+
+On-premise
+
+hay cả hai?
+
+Nếu cả hai, architecture cần tính đến deployment portability ngay từ đầu.
+
+G. Về quy mô
+
+8. Ước lượng:
+
+Number of tenants:
+Users / tenant:
+Total users:
+Transactions / day:
+Attachments / day:
+Peak concurrent users:
+
+Ví dụ:
+
+100 tenants
+1,000 users/tenant
+100k users
+500k transactions/day
+
+sẽ dẫn tới architecture rất khác:
+
+10 tenants
+100 users/tenant
+H. Và câu hỏi quan trọng nhất
+
+9. Bạn muốn sản phẩm này cuối cùng là:
+
+A. PAKD phiên bản mới
+
+hay:
+
+B. Một Business Process / Workflow Platform, trong đó PAKD là application đầu tiên?
+
+Nếu mục tiêu thực sự là B, tôi khuyên chúng ta nên thiết kế từ đầu theo hướng B, nhưng triển khai incremental bằng PAKD để tránh over-engineering.
+
+Nếu bạn trả lời 9 câu trên, bước tiếp theo tôi có thể cùng bạn xây một target architecture hoàn chỉnh cho platform, bao gồm bounded contexts → domain model → multi-tenancy model → workflow/rule architecture → database schema → API architecture → frontend architecture → plugin/integration architecture → deployment → security → roadmap, và đặc biệt tôi sẽ map trực tiếp từng chức năng của tài liệu PAKD 2017 vào architecture mới để đảm bảo chúng ta không bỏ sót business capability hiện hữu.
+
+Được. Và tôi nghĩ đây là cách đúng nhất để tiếp tục dự án.
+
+Ở câu trả lời trước tôi đã đi quá nhanh vào các thuật ngữ như multi-tenancy, workflow engine, rules engine, bounded context, event-driven, modular monolith... trong khi chưa xây cho bạn nền tảng khái niệm. Nếu bạn chưa quen architecture thì đọc như vậy rất khó review và rất dễ dẫn đến việc chọn một architecture mà chính bạn chưa hiểu tại sao lại chọn nó.
+
+Vì vậy, lần này tôi sẽ làm lại từ đầu, theo cách:
+
+Giải thích hệ thống trước → giải thích architecture sau → liên hệ trực tiếp với PAKD → cuối cùng mới nói chúng ta nên xây cái gì.
+
+Tôi cũng sẽ cố tình không dùng thuật ngữ khó nếu chưa giải thích nó.
+
+Phần I — Trước hết, chúng ta đang xây cái gì?
+
+Hãy bỏ qua tất cả những từ như:
+
+microservice
+workflow engine
+event-driven
+bounded context
+rule engine
+modular monolith
+
+trong vài phút.
+
+Hãy bắt đầu bằng nhu cầu kinh doanh của bạn.
+
+Bạn có một phần mềm cũ:
+
+PAKD – Phương án kinh doanh
+
+Phần mềm này hiện chạy local/desktop và hỗ trợ một công ty thực hiện một quy trình nghiệp vụ.
+
+Bây giờ bạn muốn xây phiên bản mới:
+
+                 PHẦN MỀM PAKD MỚI
+
+                     Web Browser
+                          │
+                          │ Internet
+                          ▼
+                     Web Server
+                          │
+                          ▼
+                       Database
+
+Thay vì:
+
+Computer A
+    │
+    └── PAKD Desktop
+
+Computer B
+    │
+    └── PAKD Desktop
+
+Computer C
+    │
+    └── PAKD Desktop
+
+Đây là thay đổi đầu tiên:
+
+Desktop application → Web application
+
+Nhưng đây không phải mục tiêu lớn nhất của bạn.
+
+Phần II — Mục tiêu thực sự của bạn
+
+Từ những gì bạn trả lời, tôi hiểu mục tiêu của bạn như sau:
+
+Mục tiêu 1
+
+Có nhiều công ty sử dụng cùng một hệ thống.
+
+Ví dụ:
+
+Platform
+│
+├── Công ty A
+│
+├── Công ty B
+│
+├── Công ty C
+│
+└── Công ty D
+
+Mỗi công ty sử dụng platform nhưng:
+
+dữ liệu riêng;
+user riêng;
+workflow riêng;
+configuration riêng;
+business rule riêng.
+
+Đây gọi là multi-tenancy.
+
+Mục tiêu 2
+
+Bạn không muốn mỗi lần khách hàng yêu cầu thay đổi lại phải sửa source code.
+
+Ví dụ khách hàng A nói:
+
+"Khi số tiền > 1 tỷ thì phải thêm bước Finance."
+
+Bạn không muốn developer sửa code.
+
+Bạn muốn:
+
+Business Admin
+      │
+      ▼
+Configuration
+      │
+      ▼
+Workflow mới
+Mục tiêu 3
+
+Khách hàng B có workflow hoàn toàn khác.
+
+Ví dụ:
+
+Customer A
+
+Sales
+ ↓
+Manager
+ ↓
+Finance
+ ↓
+Director
+ ↓
+CEO
+
+Nhưng:
+
+Customer B
+
+Sales
+ ↓
+Manager
+ ↓
+CEO
+
+Bạn vẫn muốn cùng một platform phục vụ cả hai.
+
+Mục tiêu 4
+
+Sau PAKD, bạn muốn làm:
+
+PAKD
+Procurement
+Inventory
+Sales
+
+nhưng không muốn mỗi application là một hệ thống độc lập hoàn toàn.
+
+Bạn muốn chúng dùng chung các khả năng như:
+
+login;
+user;
+permission;
+workflow;
+approval;
+notification;
+document;
+audit;
+form;
+rule.
+
+Đây chính là lý do tôi gọi sản phẩm của bạn là:
+
+Business Process / Workflow Platform
+
+Phần III — "Platform" nghĩa là gì?
+
+Đây là khái niệm quan trọng nhất.
+
+Hãy tưởng tượng bạn xây một ngôi nhà.
+
+Có những thứ mọi ngôi nhà đều cần:
+
+Móng
+Điện
+Nước
+Cửa
+Cầu thang
+
+Nhưng mỗi ngôi nhà có thể có:
+
+Phòng ngủ khác nhau
+Phòng khách khác nhau
+Nội thất khác nhau
+
+Platform của bạn cũng tương tự.
+
+Platform cung cấp phần "hạ tầng chung"
+
+Ví dụ:
+
+                 PLATFORM
+
+        ┌──────────────────────┐
+        │ Login                │
+        │ User                 │
+        │ Permission           │
+        │ Workflow             │
+        │ Approval             │
+        │ Notification         │
+        │ File                 │
+        │ Audit                │
+        │ Form                 │
+        └──────────────────────┘
+
+Sau đó application sử dụng những capability này.
+
+                 PLATFORM
+                     │
+          ┌──────────┼──────────┐
+          │          │          │
+         PAKD   Procurement   Sales
+Phần IV — Ví dụ rất cụ thể
+
+Giả sử chúng ta có platform.
+
+Một công ty muốn xây quy trình:
+
+Nhân viên lập phương án kinh doanh → Trưởng phòng duyệt → Finance duyệt → CEO duyệt.
+
+Platform cung cấp:
+
+User
+Nguyễn Văn A
+Role
+Sales
+Manager
+Finance
+CEO
+Form
+Tên sản phẩm
+Nhà cung cấp
+Giá nhập
+Giá bán
+Lợi nhuận
+...
+Workflow
+Sales
+ ↓
+Manager
+ ↓
+Finance
+ ↓
+CEO
+Notification
+"Bạn có một phương án cần duyệt"
+Audit
+Nguyễn Văn A tạo phương án
+Manager approve
+Finance approve
+CEO approve
+
+Những thứ này không chỉ PAKD cần.
+
+Procurement cũng cần.
+
+Inventory cũng có thể cần.
+
+Sales cũng có thể cần.
+
+Đó chính là platform capability.
+
+Phần V — Vậy PAKD là gì?
+
+PAKD là phần nghiệp vụ cụ thể.
+
+Ví dụ:
+
+PAKD
+│
+├── Nhà cung cấp
+├── Hàng hóa
+├── Phương án kinh doanh
+├── Giá nhập
+├── Giá bán
+├── Chiết khấu
+├── Hợp đồng
+└── Thanh toán
+
+Trong khi platform có:
+
+Platform
+│
+├── User
+├── Role
+├── Workflow
+├── Approval
+├── Notification
+├── Document
+└── Audit
+
+Có thể hình dung:
+
+       PLATFORM
+          │
+          │ cung cấp capability
+          ▼
+        PAKD
+          │
+          │ sử dụng
+          ▼
+   Business Process
+Phần VI — Multi-tenant là gì?
+
+Đây là một khái niệm rất quan trọng với SaaS.
+
+Bạn nói:
+
+1 customer = 1 company
+
+Giả sử bạn có 3 khách hàng:
+
+Customer A = Công ty ABC
+Customer B = Công ty XYZ
+Customer C = Công ty DEF
+
+Cả ba cùng truy cập:
+
+https://your-platform.com
+
+Nhưng:
+
+Công ty ABC
+Users:
+100
+
+Products:
+10,000
+
+Proposals:
+50,000
+Công ty XYZ
+Users:
+500
+
+Products:
+20,000
+
+Proposals:
+100,000
+
+ABC không được nhìn thấy dữ liệu của XYZ.
+
+Đây chính là multi-tenancy.
+
+Phần VII — Tại sao không làm mỗi công ty một database?
+
+Có thể.
+
+Ví dụ:
+
+Database A → Company A
+
+Database B → Company B
+
+Database C → Company C
+
+Cách này rất dễ hiểu.
+
+Nhưng nếu có:
+
+100 tenants
+
+bạn phải quản lý:
+
+100 database
+
+Backup:
+
+100 database
+
+Migration:
+
+100 database
+
+Monitoring:
+
+100 database
+
+Upgrade:
+
+100 database
+
+Vì vậy có một cách khác.
+
+Phần VIII — Shared database
+
+Chúng ta có:
+
+             PostgreSQL
+                  │
+       ┌──────────┼──────────┐
+       │          │          │
+   Company A   Company B   Company C
+
+Ví dụ bảng:
+
+proposal
+
+có:
+
+id
+tenant_id
+proposal_name
+amount
+status
+created_by
+
+Dữ liệu:
+
+id	tenant_id	proposal	amount
+1	A	PA001	100M
+2	A	PA002	200M
+3	B	PA001	500M
+4	C	PA001	800M
+
+Khi user của Company A đăng nhập:
+
+tenant_id = A
+
+thì hệ thống chỉ cho phép:
+
+SELECT *
+FROM proposal
+WHERE tenant_id = 'A';
+
+Do đó Company A không thấy B/C.
+
+Đây là cách tôi đề xuất ban đầu cho hệ thống của bạn.
+
+Phần IX — Tại sao tôi nói "tenant_id phải được thiết kế từ đầu"?
+
+Giả sử bạn xây hệ thống PAKD đầu tiên như sau:
+
+proposal
+supplier
+product
+
+không có tenant.
+
+Sau này bạn muốn SaaS:
+
+Company A
+Company B
+Company C
+
+bạn sẽ phải sửa gần như toàn bộ hệ thống.
+
+Vì vậy ngay từ đầu:
+
+proposal
+supplier
+product
+workflow
+user
+document
+...
+
+đều phải hiểu chúng thuộc tenant nào.
+
+Phần X — Workflow là gì?
+
+Đây là phần quan trọng nhất của PAKD.
+
+Workflow đơn giản nghĩa là:
+
+Một công việc đi qua những bước nào và ai xử lý từng bước?
+
+Ví dụ PAKD:
+
+Nhân viên kinh doanh
+        │
+        ▼
+Trưởng phòng
+        │
+        ▼
+Tài chính
+        │
+        ▼
+Giám đốc
+        │
+        ▼
+Tổng giám đốc
+
+Đây là workflow.
+
+Phần XI — Tại sao không viết workflow trực tiếp trong code?
+
+Ví dụ developer viết:
+
+if proposal_type == "A":
+    next = "FINANCE"
+
+elif proposal_type == "B":
+    next = "DIRECTOR"
+
+Ban đầu rất đơn giản.
+
+Nhưng sau này:
+
+Customer A:
+
+Sales → Manager → Finance → CEO
+
+Customer B:
+
+Sales → Manager → Risk → CEO
+
+Customer C:
+
+Sales → Director
+
+Customer D:
+
+Sales
+ ↓
+Manager
+ ↓
+Finance + Risk
+ ↓
+CEO
+
+Code sẽ bắt đầu trở thành:
+
+if...
+elif...
+elif...
+elif...
+elif...
+...
+
+Rất khó maintain.
+
+Phần XII — Workflow Engine là gì?
+
+Workflow Engine đơn giản là một component có nhiệm vụ:
+
+Đọc workflow configuration và quyết định bước tiếp theo.
+
+Thay vì code:
+
+if...
+else...
+
+chúng ta lưu workflow:
+
+Workflow: PAKD_STANDARD
+
+Step 1:
+    Sales
+
+Step 2:
+    Manager
+
+Step 3:
+    Finance
+
+Step 4:
+    CEO
+
+Engine đọc configuration:
+
+Proposal
+   │
+   ▼
+Sales task
+   │
+   ▼
+Manager task
+   │
+   ▼
+Finance task
+   │
+   ▼
+CEO task
+Phần XIII — Sequential approval
+
+Bạn yêu cầu:
+
+Sequential
+
+Nghĩa là lần lượt.
+
+A
+ ↓
+B
+ ↓
+C
+ ↓
+D
+
+Ví dụ:
+
+Sales
+ ↓
+Manager
+ ↓
+Finance
+ ↓
+CEO
+Phần XIV — Parallel approval
+
+Bạn cũng yêu cầu:
+
+Parallel approval
+
+Nghĩa là nhiều người/phòng ban có thể xử lý cùng lúc.
+
+Ví dụ:
+
+             Manager
+                │
+                ▼
+         ┌──────┴──────┐
+         │             │
+         ▼             ▼
+      Finance         Risk
+         │             │
+         └──────┬──────┘
+                ▼
+               CEO
+
+Finance và Risk không cần chờ nhau.
+
+Phần XV — Conditional branching
+
+Nghĩa là:
+
+Tùy điều kiện mà đi hướng khác nhau.
+
+Ví dụ:
+
+Amount < 100M
+       │
+       ▼
+   Manager
+
+nhưng:
+
+Amount > 1B
+       │
+       ▼
+Manager
+   ↓
+Finance
+   ↓
+CEO
+
+Điều kiện chính là:
+
+IF amount > 1B
+Phần XVI — Multiple approvers
+
+Có thể yêu cầu:
+
+3 người duyệt nhưng chỉ cần 2 người đồng ý.
+
+Ví dụ:
+
+Finance Manager
+Risk Manager
+Legal Manager
+
+Rule:
+
+2 / 3 approvals required
+
+Đây là một khả năng bạn yêu cầu khi trả lời câu #5.
+
+Phần XVII — Delegation
+
+Ví dụ:
+
+Finance Manager đang nghỉ phép.
+
+Ông ấy giao quyền xử lý cho:
+
+Finance Deputy
+
+Workflow phải hiểu:
+
+Task assigned to:
+Finance Manager
+
+Delegated to:
+Finance Deputy
+Phần XVIII — Escalation
+
+Ví dụ task phải được xử lý trong:
+
+4 hours
+
+Nếu quá 4 giờ:
+
+Finance Manager
+      ↓
+4 hours
+      ↓
+Không xử lý
+      ↓
+Escalate
+      ↓
+Finance Director
+
+Đây gọi là escalation.
+
+Phần XIX — SLA
+
+SLA = Service Level Agreement.
+
+Hiểu đơn giản:
+
+Quy định một công việc phải được xử lý trong bao lâu.
+
+Ví dụ:
+
+Manager approval:
+4 hours
+
+Finance:
+8 hours
+
+CEO:
+24 hours
+
+Platform có thể theo dõi:
+
+Task:
+Finance approval
+
+Created:
+10:00
+
+Deadline:
+18:00
+
+Current:
+17:30
+
+Remaining:
+30 minutes
+Phần XX — Timeout
+
+Timeout nghĩa là:
+
+Đã quá thời gian cho phép.
+
+Ví dụ:
+
+Task deadline = 18:00
+Current = 19:00
+
+Task đã timeout.
+
+Platform có thể:
+
+timeout
+   ↓
+notify
+   ↓
+escalate
+Phần XXI — Rework
+
+Ví dụ CEO không reject hoàn toàn mà nói:
+
+"Bổ sung thông tin giá nhập."
+
+Khi đó:
+
+Sales
+ ↓
+Manager
+ ↓
+Finance
+ ↓
+CEO
+       │
+       │ Return
+       ▼
+Sales
+
+Sales sửa lại rồi workflow tiếp tục.
+
+Đó là rework.
+
+Phần XXII — Versioning
+
+Đây là một khái niệm rất quan trọng nhưng dễ hiểu.
+
+Giả sử ngày 1:
+
+Workflow v1
+
+Sales
+ ↓
+Manager
+ ↓
+CEO
+
+Ngày 10 business thay đổi:
+
+Workflow v2
+
+Sales
+ ↓
+Manager
+ ↓
+Finance
+ ↓
+CEO
+
+Các proposal đang chạy v1 không được tự nhiên chuyển sang v2.
+
+Vì vậy:
+
+Proposal 001 → Workflow v1
+Proposal 002 → Workflow v1
+
+Proposal 100 → Workflow v2
+Proposal 101 → Workflow v2
+
+Đây gọi là workflow versioning.
+
+Phần XXIII — Business Rule là gì?
+
+Workflow trả lời:
+
+Ai xử lý tiếp?
+
+Business Rule trả lời:
+
+Trong trường hợp nào?
+
+Ví dụ:
+
+IF amount > 1 billion
+THEN require CEO approval
+
+Hoặc:
+
+IF margin < 10%
+THEN require Finance approval
+Phần XXIV — Vì sao Workflow và Rule nên tách nhau?
+
+Ví dụ:
+
+Workflow:
+
+Sales
+ ↓
+Manager
+ ↓
+Finance
+ ↓
+CEO
+
+Rule:
+
+IF amount > 1B
+
+có thể quyết định:
+
+CEO required
+
+Một workflow có thể sử dụng nhiều rule.
+
+Một rule có thể được dùng trong nhiều workflow.
+
+Đây gọi là tách business logic thành các thành phần có thể tái sử dụng.
+
+Phần XXV — Decision Table
+
+Đây là cách Business Admin có thể cấu hình rule dễ hơn.
+
+Ví dụ:
+
+Amount	Supplier	Margin	Kết quả
+<100M	Existing	>10%	Manager
+100M–1B	Existing	>10%	Finance
+>1B	Existing	>10%	CEO
+Any	New	<10%	Risk
+
+Business Admin có thể nhìn vào bảng này và hiểu được.
+
+Không cần đọc Python.
+
+Đây là lý do tôi đề xuất Decision Table.
+
+Phần XXVI — Dynamic Form là gì?
+
+PAKD hiện tại có form nhập dữ liệu.
+
+Ví dụ:
+
+Tên hàng
+Nhà cung cấp
+Giá nhập
+Giá bán
+Tỷ lệ lợi nhuận
+
+Trong phần mềm truyền thống, developer code trực tiếp:
+
+Textbox
+Textbox
+Textbox
+Dropdown
+...
+
+Nếu customer nói:
+
+"Thêm trường Mã vùng."
+
+developer phải sửa code.
+
+Phần XXVII — Dynamic Form thay đổi điều này
+
+Thay vì code cứng, chúng ta lưu:
+
+Form PAKD
+
+Field:
+    Product Name
+    Supplier
+    Import Price
+    Selling Price
+    Margin
+
+Frontend đọc configuration rồi tự tạo UI.
+
+Configuration
+      │
+      ▼
+Form Renderer
+      │
+      ▼
+Web Form
+
+Nếu Admin thêm:
+
+Region
+
+thì UI tự xuất hiện:
+
+Tên hàng
+Nhà cung cấp
+Giá nhập
+Giá bán
+Tỷ lệ lợi nhuận
+Vùng      ← mới
+
+Không cần deploy code.
+
+Phần XXVIII — Form cũng có Conditional Field
+
+Ví dụ:
+
+Proposal Type:
+[ Promotion ]
+
+thì xuất hiện:
+
+Promotion Start
+Promotion End
+Discount
+Supplier Funding
+
+Nếu:
+
+Proposal Type:
+[ Normal ]
+
+thì các field promotion không xuất hiện.
+
+Đây chính là một trong những thứ giúp platform của bạn thích ứng với nhiều business case.
+
+Phần XXIX — Business Object là gì?
+
+Thuật ngữ này nghe khó nhưng thực ra rất đơn giản.
+
+Business Object = một đối tượng nghiệp vụ.
+
+Ví dụ PAKD:
+
+Supplier
+Product
+Proposal
+Contract
+
+Procurement:
+
+Purchase Request
+Purchase Order
+Supplier
+
+Inventory:
+
+Warehouse
+Stock
+Stock Transfer
+
+Sales:
+
+Customer
+Sales Order
+Invoice
+
+Đó là business objects.
+
+Phần XXX — Tại sao tôi nói "Business Object + Process"?
+
+Đây là một abstraction rất quan trọng.
+
+Ví dụ:
+
+Business Object:
+Proposal PA001
+
+có process:
+
+Approval Process
+
+Một object khác:
+
+Purchase Request PR001
+
+cũng có:
+
+Approval Process
+
+Một object khác:
+
+Contract C001
+
+cũng có:
+
+Approval Process
+
+Platform không cần hiểu sâu từng object.
+
+Nó chỉ cần biết:
+
+Object
+ ↓
+Process
+ ↓
+Task
+ ↓
+Approval
+
+Đây chính là khả năng dùng chung giữa PAKD, Procurement, Inventory và Sales.
+
+Phần XXXI — Task là gì?
+
+Task = một công việc đang chờ ai đó xử lý.
+
+Ví dụ:
+
+Proposal PA001
+
+Workflow tạo:
+
+Task #1
+Assigned to Sales Manager
+
+Manager approve.
+
+Workflow tạo:
+
+Task #2
+Assigned to Finance
+
+Finance approve.
+
+Workflow tạo:
+
+Task #3
+Assigned to CEO
+
+CEO approve.
+
+Vậy:
+
+Workflow
+   │
+   ├── Task
+   ├── Task
+   └── Task
+Phần XXXII — Task Inbox
+
+Khi bạn có nhiều application:
+
+PAKD
+Procurement
+Inventory
+Sales
+
+sẽ rất bất tiện nếu user phải vào từng application để tìm task.
+
+Vì vậy platform có:
+
+My Tasks / My Work
+
+Ví dụ:
+
+MY WORK
+
+Pending:
+12
+
+Overdue:
+3
+
+────────────────
+
+PA001
+Finance Approval
+
+PR002
+Purchase Approval
+
+SO003
+Sales Approval
+
+User chỉ cần vào một nơi.
+
+Phần XXXIII — Approval Engine
+
+Approval đơn giản là:
+
+Approve
+Reject
+Return
+
+Nhưng platform có thể mở rộng:
+
+Approve
+Reject
+Return
+Delegate
+Request Information
+Comment
+
+Điểm quan trọng là:
+
+Approval không chỉ dành cho PAKD.
+
+Nó có thể dùng cho:
+
+PAKD
+Purchase
+Contract
+Expense
+Sales
+HR
+Phần XXXIV — Comment
+
+Ví dụ trong PAKD:
+
+Finance:
+"Vui lòng bổ sung giá nhập."
+
+Sales trả lời:
+
+"Đã cập nhật."
+
+Platform nên coi comment là capability chung.
+
+Comment
+   │
+   ├── PAKD
+   ├── Procurement
+   ├── Inventory
+   └── Sales
+Phần XXXV — Attachment / Document
+
+PAKD có file đính kèm.
+
+Ví dụ:
+
+Proposal
+   │
+   ├── Contract.pdf
+   ├── PriceList.xlsx
+   └── Quotation.pdf
+
+Tôi đề xuất:
+
+Database lưu:
+
+File name
+File size
+Owner
+Tenant
+Object
+
+nhưng file thật lưu ở:
+
+Object Storage
+
+Ví dụ S3/MinIO.
+
+Bạn có thể hiểu:
+
+Database
+"Proposal PA001 có file Contract.pdf"
+
+Object Storage
+"Contract.pdf"
+Phần XXXVI — Audit Log
+
+Audit = lịch sử ai đã làm gì.
+
+Ví dụ:
+
+10:00
+User A created Proposal PA001
+
+10:30
+Manager approved PA001
+
+11:00
+Finance returned PA001
+
+11:30
+User A updated PA001
+
+12:00
+Finance approved PA001
+
+Đây cực kỳ quan trọng đối với hệ thống nghiệp vụ.
+
+Khi có vấn đề:
+
+"Ai thay đổi giá?"
+
+chúng ta có thể trả lời.
+
+Phần XXXVII — Notification
+
+Notification là thông báo.
+
+Ví dụ:
+
+Proposal PA001 cần bạn duyệt.
+
+Có thể gửi qua:
+
+In-app
+Email
+SMS
+
+Sau này:
+
+Teams
+Slack
+Push notification
+
+Điều quan trọng là Notification cũng là capability chung.
+
+Phần XXXVIII — Integration là gì?
+
+Integration = kết nối hệ thống của bạn với hệ thống khác.
+
+Bạn nói Dsmart hỗ trợ:
+
+REST API
+SOAP
+Database
+File
+
+Ví dụ PAKD cần lấy Product từ Dsmart:
+
+PAKD Platform
+       │
+       ▼
+Dsmart
+       │
+       ▼
+Product
+
+Hoặc khi approve:
+
+PAKD
+ ↓
+Approved
+ ↓
+Update price in Dsmart
+
+Đây là integration.
+
+Phần XXXIX — Tại sao cần Integration Framework?
+
+Nếu chỉ có PAKD:
+
+PAKD → Dsmart
+
+thì có thể code trực tiếp.
+
+Nhưng sau này:
+
+PAKD → Dsmart
+Procurement → SAP
+Sales → CRM
+Inventory → ERP
+
+Bạn sẽ có rất nhiều integration.
+
+Do đó tôi muốn tạo một lớp chung:
+
+Integration Framework
+
+Nó quản lý:
+
+Authentication
+Mapping
+Retry
+Error
+Logging
+Monitoring
+Phần XL — REST / SOAP / Database / File khác nhau thế nào?
+
+Bạn không cần nhớ quá sâu ở đây.
+
+Chỉ cần hiểu:
+
+REST API
+
+Hệ thống A gọi hệ thống B qua HTTP.
+
+GET /products
+POST /orders
+SOAP
+
+Một kiểu web service cũ hơn, thường dùng XML.
+
+Database access
+
+Hệ thống của bạn trực tiếp đọc database của hệ thống kia.
+
+File exchange
+
+Hai hệ thống trao đổi:
+
+Excel
+CSV
+XML
+JSON
+
+hoặc file qua SFTP/shared storage.
+
+Platform nên hỗ trợ nhiều kiểu connector.
+
+Phần XLI — Event là gì?
+
+Đây là một khái niệm hơi mới.
+
+Event = thông báo:
+
+"Một việc vừa xảy ra."
+
+Ví dụ:
+
+ProposalApproved
+
+nghĩa là:
+
+Proposal đã được approve.
+
+Sau đó nhiều hệ thống có thể quan tâm:
+
+ProposalApproved
+       │
+       ├── Notification
+       ├── Dsmart
+       ├── Audit
+       └── Reporting
+
+Một component phát event, các component khác nhận.
+
+Phần XLII — Tại sao dùng Event?
+
+Giả sử sau khi approve PAKD cần:
+
+ghi audit;
+gửi email;
+cập nhật Dsmart;
+tạo report;
+gửi notification.
+
+Nếu làm tuần tự:
+
+Approve
+ ↓
+Audit
+ ↓
+Email
+ ↓
+Dsmart
+ ↓
+Report
+
+Nếu Dsmart chết:
+
+Approve → ERROR
+
+Trong một hệ thống event-driven:
+
+Approve
+ ↓
+ProposalApproved
+ ↓
+┌────────┬────────┬─────────┐
+Audit   Email    Dsmart   Report
+
+Dsmart có thể retry riêng.
+
+Bạn chưa cần hiểu Kafka/RabbitMQ lúc này. Chỉ cần hiểu event là cách các thành phần thông báo cho nhau rằng một việc đã xảy ra.
+
+Phần XLIII — Message Broker là gì?
+
+Message Broker là "bưu điện" của hệ thống.
+
+Ví dụ:
+
+Application
+    │
+    │ "ProposalApproved"
+    ▼
+Message Broker
+    │
+    ├── Notification service
+    ├── Integration service
+    ├── Audit service
+    └── Reporting service
+
+Kafka và RabbitMQ là những công nghệ có thể đóng vai trò này.
+
+Chưa cần quyết định cái nào.
+
+Phần XLIV — Redis là gì?
+
+Redis là một hệ thống lưu dữ liệu rất nhanh trong memory.
+
+Thường dùng cho:
+
+Cache
+Session
+Temporary data
+Rate limiting
+Distributed locks
+
+Ví dụ database mất:
+
+500ms
+
+nhưng cache có thể rất nhanh.
+
+Tuy nhiên Redis không phải database chính của business data.
+
+Database chính của chúng ta vẫn có thể là PostgreSQL.
+
+Phần XLV — PostgreSQL là gì?
+
+Đây là database chính.
+
+Nó lưu:
+
+Users
+Tenants
+Proposals
+Products
+Suppliers
+Workflow
+Tasks
+Rules
+Audit
+...
+
+Tôi đề xuất PostgreSQL vì:
+
+ổn định;
+mạnh;
+transaction tốt;
+relational model phù hợp với business system;
+hỗ trợ JSON khi cần;
+scale tốt.
+Phần XLVI — Object Storage là gì?
+
+Đây là nơi lưu file.
+
+Ví dụ:
+
+PostgreSQL
+    │
+    └── metadata
+
+Object Storage
+    │
+    ├── contract.pdf
+    ├── quotation.xlsx
+    └── image.png
+
+S3 là một chuẩn/cách tiếp cận phổ biến.
+
+Không cần hiểu sâu ở giai đoạn này.
+
+Phần XLVII — API là gì?
+
+Web browser không nên trực tiếp truy cập database.
+
+Thay vào đó:
+
+Browser
+   │
+   ▼
+API
+   │
+   ▼
+Backend
+   │
+   ▼
+Database
+
+Ví dụ frontend gọi:
+
+GET /api/proposals/PA001
+
+Backend:
+
+API
+ ↓
+check user
+ ↓
+check tenant
+ ↓
+check permission
+ ↓
+load proposal
+ ↓
+return JSON
+
+Frontend hiển thị kết quả.
+
+Phần XLVIII — Frontend và Backend
+
+Rất đơn giản:
+
+Frontend
+
+Thứ user nhìn thấy:
+
+Button
+Form
+Table
+Dashboard
+Menu
+
+Ví dụ:
+
+React + TypeScript
+Backend
+
+Phần xử lý:
+
+Business logic
+Database
+Workflow
+Rule
+Authentication
+Integration
+
+Ví dụ:
+
+Python + FastAPI
+Phần XLIX — Tại sao tôi đề xuất React + FastAPI?
+
+Không phải vì đây là lựa chọn duy nhất.
+
+Tôi đề xuất nó vì mục tiêu của bạn là:
+
+xây platform tương đối nhanh, configurable và có khả năng mở rộng.
+
+Bạn hoàn toàn có thể dùng:
+
+React + Java/Spring Boot
+
+hoặc:
+
+Angular + Java
+
+hoặc:
+
+React + .NET
+
+Architecture quan trọng hơn technology ở giai đoạn này.
+
+Phần L — Modular Monolith là gì?
+
+Đây là thuật ngữ tôi dùng và có lẽ khiến bạn khó hiểu.
+
+Có hai cực:
+
+Một ứng dụng rất đơn giản
+One Application
+One Database
+Everything mixed
+
+Khó maintain.
+
+Microservices
+User Service
+Workflow Service
+Rule Service
+Notification Service
+Document Service
+PAKD Service
+...
+
+Rất nhiều service.
+
+Khó vận hành.
+
+Modular Monolith
+
+Chúng ta có một application, nhưng bên trong chia module rõ ràng:
+
+Application
+│
+├── Identity
+├── Tenant
+├── Workflow
+├── Rule
+├── Form
+├── Notification
+├── Document
+├── Audit
+│
+└── PAKD
+
+Tất cả vẫn chạy như một hệ thống.
+
+Nhưng code được chia thành các module rõ ràng.
+
+Phần LI — Vì sao tôi đề xuất Modular Monolith?
+
+Vì bạn đang xây hệ thống đầu tiên.
+
+Microservices sẽ tạo thêm rất nhiều vấn đề:
+
+Network
+Service discovery
+Deployment
+Monitoring
+Distributed transaction
+Message broker
+Authentication between services
+
+Bạn chưa cần những thứ đó ngay.
+
+Tôi muốn:
+
+Một application
++
+Database
++
+Module rõ ràng
+
+nhưng thiết kế sao cho sau này module nào thực sự cần scale thì có thể tách ra.
+
+Phần LII — Ví dụ
+
+Ban đầu:
+
+                    Backend
+                       │
+       ┌───────────────┼───────────────┐
+       │               │               │
+    Workflow         PAKD          Notification
+       │               │               │
+       └───────────────┼───────────────┘
+                       │
+                   PostgreSQL
+
+Sau này Notification quá lớn:
+
+Backend
+  │
+  ├── Workflow
+  ├── PAKD
+  │
+  └── Event
+        │
+        ▼
+Notification Service
+
+Bạn có thể tách nó ra.
+
+Đó là lý do tôi nói:
+
+Module boundary trước, microservice sau.
+
+Phần LIII — Domain là gì?
+
+"Domain" chỉ đơn giản là:
+
+Một lĩnh vực nghiệp vụ.
+
+Ví dụ:
+
+Sales
+Procurement
+Inventory
+Finance
+HR
+
+PAKD thuộc domain nào?
+
+Nó liên quan tới:
+
+Sales / Commercial / Pricing / Procurement
+
+nhưng cụ thể trong hệ thống cũ nó là một business application riêng.
+
+Phần LIV — Bounded Context là gì?
+
+Tôi sẽ giải thích thật đơn giản.
+
+Giả sử từ "Product" xuất hiện trong nhiều nơi.
+
+PAKD:
+
+Product
+- Selling price
+- Import price
+- Margin
+
+Inventory:
+
+Product
+- Stock
+- Warehouse
+- Quantity
+
+Sales:
+
+Product
+- Sales price
+- Promotion
+
+Không nhất thiết tất cả đều phải dùng một Product model khổng lồ.
+
+Mỗi domain có thể nhìn Product theo góc nhìn của nó.
+
+Đó là một phần ý tưởng của bounded context.
+
+Bạn chưa cần quyết định chi tiết này ngay.
+
+Phần LV — Configuration-driven nghĩa là gì?
+
+Đây là một trong những khái niệm quan trọng nhất đối với mục tiêu của bạn.
+
+Có hai cách xây hệ thống.
+
+Cách 1 — Code-driven
+Customer request
+ ↓
+Developer
+ ↓
+Code
+ ↓
+Build
+ ↓
+Deploy
+Cách 2 — Configuration-driven
+Customer request
+ ↓
+Business Admin
+ ↓
+Configuration
+ ↓
+Publish
+
+Bạn muốn cách 2.
+
+Nhưng không phải mọi thứ đều configuration.
+
+Phần LVI — Cái gì nên configurable?
+
+Tôi đề xuất:
+
+Form
+
+Có.
+
+Fields
+Required
+Visibility
+Validation
+Workflow
+
+Có.
+
+Steps
+Approvers
+Conditions
+SLA
+Business Rule
+
+Có.
+
+Conditions
+Decision tables
+Notification
+
+Có.
+
+When
+Who
+Channel
+Template
+Permission
+
+Có.
+
+Who
+Can do what
+On which object
+Phần LVII — Cái gì KHÔNG nên configurable ngay?
+
+Ví dụ:
+
+Database engine
+Security architecture
+Authentication protocol
+Transaction management
+Core API framework
+
+Không nên cho business admin sửa.
+
+Đây là ranh giới giữa:
+
+Platform
+
+và:
+
+Configuration
+
+Phần LVIII — Đây là mô hình tôi muốn bạn hình dung
+             ┌─────────────────────────┐
+             │       PLATFORM          │
+             │                         │
+             │ Developer builds this   │
+             └────────────┬────────────┘
+                          │
+                          ▼
+             ┌─────────────────────────┐
+             │    CONFIGURATION        │
+             │                         │
+             │ Business Admin changes  │
+             └────────────┬────────────┘
+                          │
+                          ▼
+             ┌─────────────────────────┐
+             │     APPLICATION         │
+             │                         │
+             │ PAKD / Procurement/...  │
+             └─────────────────────────┘
+
+Đây chính là sản phẩm bạn đang hướng tới.
+
+Phần LIX — Nhưng có một nguy cơ
+
+Nếu chúng ta configurable mọi thứ thì platform sẽ trở nên cực kỳ phức tạp.
+
+Ví dụ:
+
+Dynamic Entity
+Dynamic Form
+Dynamic Workflow
+Dynamic Rule
+Dynamic Database
+Dynamic API
+Dynamic UI
+Dynamic Query
+Dynamic Report
+
+Sau một thời gian sẽ thành:
+
+một "programming language" rất khó dùng.
+
+Vì vậy tôi muốn bạn nhớ nguyên tắc:
+
+Chúng ta chỉ generic ở những điểm mà PAKD + Procurement + Inventory + Sales thực sự có điểm chung.
+
+Không generic mọi thứ.
+
+Phần LX — Ví dụ về thứ có thể dùng chung
+
+PAKD:
+
+Approval
+
+Procurement:
+
+Approval
+
+Inventory:
+
+Approval
+
+Sales:
+
+Approval
+
+→ Generic Approval Engine hợp lý.
+
+PAKD:
+
+Proposal
+
+Procurement:
+
+Purchase Request
+
+Inventory:
+
+Stock Transfer
+
+→ Không nên cố gọi tất cả là:
+
+GenericTransaction123
+
+Đó sẽ là generic quá mức.
+
+Phần LXI — Vì sao tôi muốn phân tích PAKD trước?
+
+Vì PAKD chính là mẫu vật thực tế.
+
+Chúng ta có thể lấy từng chức năng trong tài liệu và hỏi:
+
+"Cái này có phải capability chung không?"
+
+Ví dụ:
+
+"Approve"
+
+PAKD cần.
+
+Procurement cần.
+
+Sales cần.
+
+→ Platform capability.
+
+"Giá nhập"
+
+PAKD cần.
+
+Inventory có thể cần.
+
+Sales có thể cần.
+
+→ Có thể domain-specific hoặc shared tùy phân tích.
+
+"PA mở"
+
+Đây có thể là:
+
+PAKD-specific concept
+
+→ Không nên đưa nguyên xi vào platform core.
+
+Phần LXII — Đó là cách chúng ta tìm Platform Core
+
+Chúng ta sẽ lấy toàn bộ PAKD:
+
+PAKD
+│
+├── Feature A
+├── Feature B
+├── Feature C
+├── Feature D
+...
+
+rồi phân loại:
+
+                    PAKD
+                     │
+        ┌────────────┼────────────┐
+        ▼            ▼            ▼
+    Platform       Shared      PAKD-only
+    capability    domain       capability
+
+Ví dụ:
+
+Platform:
+    User
+    Role
+    Approval
+    Workflow
+    Notification
+    Audit
+    Document
+
+Shared:
+    Supplier
+    Product
+    Price
+    Contract
+
+PAKD-only:
+    Business Proposal
+    Open Proposal
+    Proposal-specific calculation
+
+Đây là bước tôi muốn làm tiếp theo.
+
+Phần LXIII — Tại sao tôi chưa muốn nói về Kafka, Kubernetes...?
+
+Bởi vì ở thời điểm hiện tại, chúng ta chưa cần.
+
+Bạn có thể thấy trong câu trả lời trước tôi đã nhắc:
+
+Kafka
+Redis
+OpenSearch
+Kubernetes
+OpenTelemetry
+
+Nhưng đó chưa phải vấn đề bạn cần giải quyết ngay.
+
+Nếu chúng ta chưa biết:
+
+Business Process là gì?
+Entity là gì?
+Workflow là gì?
+Rule là gì?
+
+thì chọn Kafka hay RabbitMQ không giúp ích gì.
+
+Phần LXIV — Thứ tự học/thiết kế tôi đề xuất cho bạn
+
+Tôi muốn chúng ta đi theo thứ tự này:
+
+                    BUSINESS
+                       │
+                       ▼
+                Business Process
+                       │
+                       ▼
+                    Entity
+                       │
+                       ▼
+                    Workflow
+                       │
+                       ▼
+                     Rule
+                       │
+                       ▼
+                  Permission
+                       │
+                       ▼
+                   Platform
+                       │
+                       ▼
+                  Architecture
+                       │
+                       ▼
+                   Technology
+
+Đây là thứ tự rất quan trọng.
+
+Không đi ngược lại.
+
+Không nên:
+
+"Kafka hay RabbitMQ?"
+
+trước khi biết:
+
+"Business process của tôi là gì?"
+Phần LXV — Vậy hệ thống của chúng ta cuối cùng sẽ như thế nào?
+
+Hãy tưởng tượng một ngày khách hàng đăng nhập:
+
+                 YOUR PLATFORM
+                       │
+             ┌─────────┴─────────┐
+             │                   │
+          My Work            Applications
+                                 │
+                ┌────────────────┼───────────────┐
+                │                │               │
+               PAKD        Procurement       Inventory
+                │
+               Sales
+
+Admin của công ty có thể vào:
+
+Administration
+│
+├── Users
+├── Roles
+├── Forms
+├── Workflows
+├── Rules
+├── Notifications
+└── Integrations
+
+Ví dụ:
+
+Workflow
+─────────────────────────────
+
+Business Proposal Approval
+
+Sales
+  ↓
+Manager
+  ↓
+Finance
+  ↓
+CEO
+
+Admin có thể thay đổi thành:
+
+Sales
+  ↓
+Manager
+  ↓
+Risk + Finance
+  ↓
+CEO
+
+và publish version mới.
+
+Không cần developer sửa code.
+
+Đây chính là mục tiêu cuối cùng.
+
+Phần LXVI — Kiến trúc tổng thể, nhưng lần này đọc từ trái sang phải
+
+Sau khi hiểu các khái niệm trên, sơ đồ trước đây của tôi có thể đọc như sau:
+
+┌───────────────────────────────────────┐
+│             USER BROWSER              │
+│                                       │
+│ Form / Table / Dashboard / Task       │
+└──────────────────┬────────────────────┘
+                   │
+                   ▼
+┌───────────────────────────────────────┐
+│                 API                   │
+│                                       │
+│ Browser nói chuyện với Backend        │
+└──────────────────┬────────────────────┘
+                   │
+                   ▼
+┌───────────────────────────────────────┐
+│            PLATFORM CORE              │
+│                                       │
+│ User                                  │
+│ Tenant                                │
+│ Permission                            │
+│ Workflow                              │
+│ Rule                                  │
+│ Form                                  │
+│ Task                                  │
+│ Approval                              │
+│ Notification                          │
+│ Document                              │
+│ Audit                                 │
+└──────────────────┬────────────────────┘
+                   │
+                   ▼
+┌───────────────────────────────────────┐
+│          BUSINESS APPLICATIONS        │
+│                                       │
+│ PAKD                                  │
+│ Procurement                           │
+│ Inventory                             │
+│ Sales                                 │
+└──────────────────┬────────────────────┘
+                   │
+                   ▼
+┌───────────────────────────────────────┐
+│               DATABASE                │
+│             PostgreSQL                │
+└───────────────────────────────────────┘
+
+Và khi cần kết nối hệ thống ngoài:
+
+                    PLATFORM
+                       │
+                       ▼
+              Integration Layer
+                       │
+           ┌───────────┼───────────┐
+           ▼           ▼           ▼
+        Dsmart        ERP       Other API
+Phần LXVII — 100 tenants và 100,000 users có đáng lo không?
+
+Tôi muốn giúp bạn giảm bớt một lo lắng ở đây.
+
+Con số:
+
+100 tenants
+1000 users / tenant
+100,000 users
+500,000 transactions/day
+
+không có nghĩa chúng ta phải xây một hệ thống cực kỳ phức tạp ngay ngày đầu.
+
+500k transaction/day trung bình khoảng:
+
+~5.8 transaction / second
+
+Tất nhiên peak có thể cao hơn rất nhiều, nhưng bản thân con số trung bình này không phải một scale quá khủng đối với một hệ thống backend/database được thiết kế tốt.
+
+Vấn đề khó hơn của bạn là:
+
+Multi-tenancy
++
+Customization
++
+Workflow
++
+Business Rules
++
+Security
++
+Maintainability
+
+chứ không phải đơn thuần "500k transactions".
+
+Phần LXVIII — Tôi muốn bạn nhớ 10 khái niệm này
+
+Nếu sau buổi review này bạn chỉ nhớ 10 thứ, hãy nhớ:
+
+Khái niệm	Hiểu đơn giản
+SaaS	Một phần mềm trên cloud phục vụ nhiều khách hàng
+Tenant	Một khách hàng/công ty
+Multi-tenant	Nhiều công ty dùng cùng platform nhưng data/config riêng
+Business Object	Đối tượng nghiệp vụ: Proposal, Product, Purchase Request...
+Workflow	Công việc đi qua những bước nào
+Task	Một công việc đang chờ một người xử lý
+Rule	Điều kiện quyết định hệ thống phải làm gì
+Form	Giao diện nhập dữ liệu
+Platform	Những capability dùng chung cho nhiều application
+Configuration	Những thứ Business Admin có thể thay đổi mà không sửa code
+
+Nếu 10 khái niệm này rõ, chúng ta đã có nền tảng rất tốt.
+
+Phần LXIX — Và đây là architecture mà tôi muốn bạn review
+
+Không cần quan tâm technology trước.
+
+Hãy review logic này:
+
+                         PLATFORM
+                            │
+             ┌──────────────┼──────────────┐
+             │              │              │
+          Identity       Workflow         Rules
+             │              │              │
+          Tenant          Tasks        Decision Table
+             │              │              │
+       Permission       Approval            │
+             │              │              │
+             └──────────────┼──────────────┘
+                            │
+                ┌───────────┼───────────┐
+                │           │           │
+               Forms    Documents    Notification
+                │           │           │
+                └───────────┼───────────┘
+                            │
+                        Applications
+                            │
+             ┌──────────────┼──────────────┐
+             │              │              │
+            PAKD       Procurement      Inventory
+                                           │
+                                          Sales
+
+Và:
+
+Developer
+    │
+    │ build
+    ▼
+PLATFORM
+    │
+    │ configure
+    ▼
+Business Admin
+    │
+    ├── Form
+    ├── Workflow
+    ├── Rule
+    ├── Permission
+    └── Notification
+    │
+    ▼
+BUSINESS APPLICATION
+
+Đây là architecture concept tôi muốn bạn review trước.
+
+Chưa cần quan tâm FastAPI, React, PostgreSQL, Kafka, Redis, Kubernetes.
+
+Phần LXX — Một điều tôi muốn thay đổi so với cách chúng ta đã thảo luận
+
+Tôi đề nghị không tiếp tục nhảy ngay sang "Target Architecture production-grade".
+
+Thay vào đó, chúng ta sẽ xây kiến trúc theo kiểu học + thiết kế song song.
+
+Tôi đề xuất 5 bước tiếp theo:
+
+Bước 1 — Hiểu PAKD
+
+Tôi sẽ lấy tài liệu PAKD của bạn và giải thích:
+
+PAKD đang làm gì?
+Ai sử dụng?
+Có những chức năng gì?
+Dữ liệu gì?
+Workflow nào?
+Rule nào?
+Bước 2 — Vẽ lại PAKD bằng ngôn ngữ đơn giản
+
+Ví dụ:
+
+User
+ ↓
+Create Proposal
+ ↓
+Submit
+ ↓
+Manager
+ ↓
+Finance
+ ↓
+Director
+ ↓
+CEO
+Bước 3 — Tìm những thứ dùng chung
+
+Ví dụ:
+
+Approval
+Workflow
+Task
+User
+Permission
+Document
+Notification
+Bước 4 — Từ đó mới hình thành Platform
+PAKD
+   ↓
+Common capabilities
+   ↓
+Platform
+Bước 5 — Cuối cùng mới chọn technology
+Platform design
+      ↓
+Database
+      ↓
+Backend
+      ↓
+Frontend
+      ↓
+Infrastructure
+Và một điểm cuối cùng rất quan trọng
+
+Bạn không cần phải biết architecture trước khi tham gia thiết kế architecture.
+
+Thực tế, với dự án này, kiến thức business của bạn về PAKD và mục tiêu sản phẩm quan trọng hơn việc bạn biết Kafka hay Kubernetes.
+
+Vai trò của chúng ta có thể phân chia như sau:
+
+BẠN
+│
+├── Biết business
+├── Biết khách hàng cần gì
+├── Biết PAKD hiện tại
+├── Biết những thay đổi khách hàng thường yêu cầu
+└── Quyết định product
+
+TÔI
+│
+├── Giải thích architecture
+├── Đưa ra các lựa chọn
+├── Phân tích trade-off
+├── Chỉ ra rủi ro
+└── Giúp chuyển business requirement
+    → system design
+
+Và tôi sẽ không yêu cầu bạn hiểu một thuật ngữ trước khi sử dụng nó. Nếu chúng ta gặp "bounded context", "event sourcing", "CQRS", "outbox", "RBAC", "ABAC", "BPMN"... tôi sẽ giải thích nó bằng ví dụ PAKD trước rồi mới nói thuật ngữ kỹ thuật.
+
+Bước tiếp theo tôi đề xuất
+
+Chúng ta hãy chưa bàn về architecture nữa. Tôi sẽ bắt đầu từ chính tài liệu PAKD và làm cho bạn một bản:
+
+"PAKD 2017 được giải thích lại từ góc nhìn Business/System Analysis"
+
+gồm Actor → chức năng → dữ liệu → quy trình → workflow → rule → permission → integration, sử dụng các ví dụ cụ thể trong tài liệu. Sau đó tôi sẽ đánh dấu từng thành phần bằng:
+
+🟢 Platform nên dùng chung
+🔵 Có thể dùng chung
+🟠 PAKD-specific
+🔴 Legacy nên thay đổi
+
+Từ bản đó chúng ta mới cùng nhau thiết kế PAKD Web v2, rồi dần dần mở rộng thành platform. Đây sẽ là cách an toàn và dễ review nhất cho bạn.
+
+Today 9:48 PM
+hãy làm cho tôi một bản:
+PAKD 2017 được giải thích chi tiết lại từ góc nhìn Business/System Analysis  
+
+Được. Tôi đã đọc toàn bộ tài liệu “Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017” và lần này tôi sẽ không bắt đầu từ architecture, mà phân tích PAKD 2017 đúng theo góc nhìn của một Business/System Analyst.
+
+Mục tiêu của bản này là để bạn có thể đọc PAKD và trả lời được:
+
+PAKD thực sự là hệ thống gì? Ai sử dụng? Họ làm gì? Dữ liệu nào đi qua hệ thống? Quy trình chạy thế nào? Business rule nằm ở đâu? Những phần nào là đặc thù PAKD và những phần nào có thể trở thành capability của platform mới?
+
+Tôi sẽ phân biệt rõ:
+
+[SOURCE] = thông tin trực tiếp từ tài liệu 2017.
+[ANALYSIS] = phân tích của tôi dựa trên tài liệu.
+[PROPOSAL] = đề xuất cho hệ thống mới.
+1. Executive Summary — PAKD 2017 thực chất là hệ thống gì?
+
+Nếu chỉ nhìn tên:
+
+"Phần mềm Phương án kinh doanh"
+
+thì dễ nghĩ đây là một phần mềm để nhập phương án kinh doanh.
+
+Nhưng đọc toàn bộ tài liệu, tôi thấy nó lớn hơn rất nhiều.
+
+PAKD 2017 thực chất có 6 nhóm chức năng lớn:
+                    PAKD 2017
+                        │
+        ┌───────────────┼────────────────┐
+        │               │                │
+        ▼               ▼                ▼
+   1. Create         2. Approval      3. Contract
+      PAKD              Workflow          Terms
+        │               │                │
+        └───────────────┼────────────────┘
+                        │
+        ┌───────────────┼────────────────┐
+        ▼               ▼                ▼
+   4. Supplier       5. Price         6. Reporting
+      Payment           Sync              / Audit
+
+Cụ thể:
+
+Lập phương án kinh doanh
+Quản lý quy trình phê duyệt
+Quản lý điều khoản thương mại với nhà cung cấp
+Theo dõi thanh toán nhà cung cấp
+Cập nhật/đồng bộ giá bán lẻ sang Dsmart
+Theo dõi, báo cáo, audit và kiểm soát
+
+Tài liệu chính thức cũng chia chức năng thành:
+
+Tạo PAKD
+Quản lý thanh toán nhà cung cấp
+Xử lý PAKD
+Cập nhật giá bán lẻ
+Quản trị hệ thống
+Thông báo các PAKD chưa xử lý.
+
+[ANALYSIS]
+
+Điểm này cực kỳ quan trọng cho dự án mới:
+
+PAKD 2017 không đơn thuần là một CRUD application.
+
+Nó là một business process system.
+
+Nó quản lý:
+
+Business Data
+      +
+Business Process
+      +
+Approval
+      +
+Business Rules
+      +
+Documents
+      +
+Integration
+      +
+Audit
+
+Và đây chính là lý do PAKD rất phù hợp để trở thành application đầu tiên trên Business Process / Workflow Platform mà bạn đang hướng tới.
+
+2. Business Context — PAKD tồn tại để giải quyết vấn đề gì?
+
+Theo tài liệu, hệ thống được sử dụng tại:
+
+Phòng Kinh doanh
+Thẩm định giá
+Tài chính Kế toán
+Văn phòng
+Kinh tế Tổng hợp
+Kiểm soát nội bộ
+Giám đốc Kinh doanh
+Ban Tổng Giám đốc.
+
+Có thể hình dung business process ban đầu như sau:
+
+                 BUSINESS
+                    │
+                    ▼
+              Create Proposal
+                    │
+                    ▼
+              Internal Review
+                    │
+             ┌──────┴──────┐
+             ▼             ▼
+         Evaluation      Finance
+             │             │
+             └──────┬──────┘
+                    ▼
+              Business Director
+                    │
+                    ▼
+                  CEO
+                    │
+                    ▼
+             Execute / Sync
+                    │
+                    ▼
+                  Dsmart
+
+Đây không phải chỉ là:
+
+"nhập một form → lưu database".
+
+Mà là:
+
+Một đề xuất kinh doanh được tạo ra → đi qua nhiều bộ phận → mỗi bộ phận có quyền khác nhau → có thể trả lại → sửa → xử lý lại → cuối cùng được phê duyệt → kết quả được đưa sang hệ thống khác.
+
+3. Actor — Ai sử dụng PAKD?
+
+Đây là phần đầu tiên một Business Analyst cần xác định.
+
+Tài liệu định nghĩa 8 nhóm đối tượng sử dụng.
+
+Tôi chuyển thành bảng dễ hiểu hơn:
+
+Actor	Vai trò nghiệp vụ	Quyền chính
+Nhân viên Kinh doanh	Lập PAKD	Create/Edit/Submit
+Trưởng phòng Kinh doanh	Kiểm tra bước 1	Approve/Return
+Nhân viên QTRR & TĐG	Hỗ trợ đánh giá	View/Comment
+Nhân viên TCKT	Hỗ trợ tài chính	View/Comment
+Trưởng phòng QTRR & TĐG	Phê duyệt	Approve/Return
+Trưởng phòng TCKT	Phê duyệt	Approve/Return
+GĐ Kinh doanh / TGĐ	Lãnh đạo	Approve/Return/View
+Văn phòng	Xử lý bản in/phê duyệt giấy	Print/Update approval
+KTTH	Đồng bộ giá	Sync to Dsmart
+KSNB	Kiểm soát	View/Audit/Export
+
+Lưu ý: bảng trên gộp một số actor theo cách dễ hiểu; tài liệu gốc tách các vai trò cụ thể như mục III.
+
+4. Actor không đồng nghĩa với User
+
+Đây là một điểm rất quan trọng khi chúng ta thiết kế version mới.
+
+Ví dụ:
+
+Nguyễn Văn A
+
+là User.
+
+Nhưng anh A có thể có:
+
+User
+  │
+  ├── Department: Sales
+  ├── Role: Sales Staff
+  └── Permission: Create PAKD
+
+Trong tài liệu 2017, quyền được mô tả theo account/role/phòng ban.
+
+[PROPOSAL]
+
+Version mới nên tách rõ:
+
+User
+Department
+Role
+Permission
+Business Scope
+
+Ví dụ:
+
+User:
+    Nguyen Van A
+
+Department:
+    Sales
+
+Role:
+    Sales Staff
+
+Permission:
+    Create PAKD
+    Edit own PAKD
+    Submit PAKD
+
+Điều này sẽ cực kỳ quan trọng khi hỗ trợ multi-tenant.
+
+5. Business Object — PAKD gồm những dữ liệu gì?
+
+Đây là câu hỏi rất quan trọng.
+
+Tài liệu không đưa ra một ERD/database schema hoàn chỉnh, nên tôi không thể khẳng định chính xác schema database 2017.
+
+Nhưng từ các chức năng được mô tả, chúng ta có thể xác định các business object sau.
+
+5.1. Business Proposal / PAKD
+
+Đây là object trung tâm.
+
+Ta có:
+
+PAKD
+ │
+ ├── PA gốc
+ ├── Bổ sung PA
+ ├── Nhà cung cấp
+ ├── Hàng hóa
+ ├── Giá nhập
+ ├── Giá bán
+ ├── Chi phí
+ ├── Kiến nghị / đề xuất
+ ├── Tài liệu
+ └── Approval history
+
+Tài liệu nói rõ:
+
+PA đầu tiên là PA gốc, các lần bổ sung được đánh số tăng dần 1..n.
+
+Điều này cho thấy:
+
+PAKD
+ │
+ ├── Original
+ │
+ ├── Supplement #1
+ │
+ ├── Supplement #2
+ │
+ └── Supplement #3
+
+Đây là một business concept rất quan trọng.
+
+6. PAKD không phải một record đơn giản
+
+Một người có thể nghĩ:
+
+PAKD = 1 row
+
+Nhưng tài liệu cho thấy nó phức tạp hơn.
+
+Ví dụ:
+
+PA001
+  │
+  ├── PA gốc
+  │
+  ├── Lần bổ sung 1
+  │
+  ├── Lần bổ sung 2
+  │
+  └── Lần bổ sung 3
+
+Ngoài ra PAKD còn chứa nhiều hàng hóa.
+
+Vì vậy có thể hình dung:
+
+PAKD
+ │
+ ├── Supplier
+ │
+ ├── Items
+ │    ├── Product A
+ │    ├── Product B
+ │    └── Product C
+ │
+ ├── Commercial Terms
+ │
+ ├── Documents
+ │
+ ├── Comments
+ │
+ └── Approval History
+
+[ANALYSIS]
+
+Đây là một Aggregate nghiệp vụ tương đối lớn.
+
+7. Supplier — Nhà cung cấp
+
+PAKD được tạo gắn với nhà cung cấp.
+
+Tài liệu mô tả người dùng:
+
+nhập mã nhà cung cấp → chọn nhà cung cấp → hệ thống phát sinh số phương án.
+
+Vì vậy:
+
+Supplier
+   │
+   └── PAKD
+
+Một supplier có thể có nhiều PAKD:
+
+Supplier A
+   │
+   ├── PAKD 001
+   ├── PAKD 015
+   └── PAKD 102
+8. Product / Item — Hàng hóa
+
+Một PAKD có danh sách hàng hóa.
+
+Hệ thống cho phép:
+
+lấy danh sách hàng theo nhà cung cấp từ Dsmart
+
+hoặc:
+
+import dữ liệu hàng hóa từ Excel.
+
+Sau khi lấy danh sách:
+
+Product
+ ├── Import price
+ ├── Profit rate
+ ├── Selling price
+ └── Region-specific price
+
+Tài liệu yêu cầu nhập:
+
+giá nhập, tỷ lệ lãi, giá bán các vùng.
+
+9. Đây là một business concept cực kỳ quan trọng: Region
+
+Giá bán có thể khác theo vùng/siêu thị.
+
+Tài liệu mô tả:
+
+chọn vùng cần đồng bộ giá; vùng 0 là toàn bộ hệ thống siêu thị, vùng 3 là siêu thị Sài Đồng.
+
+Có thể hình dung:
+
+Product
+   │
+   ├── Region 0 → All supermarkets
+   ├── Region 1
+   ├── Region 2
+   └── Region 3 → Sài Đồng
+
+[ANALYSIS]
+
+Đây không chỉ là UI filtering.
+
+Nó là business dimension:
+
+Price may be scoped by geographic/store region.
+
+Đối với hệ thống mới, cần giữ concept này.
+
+10. PAKD Type — Các loại phương án
+
+Đây là phần đặc biệt quan trọng.
+
+PAKD 2017 có 24 trạng thái/hình thức PAKD được liệt kê trong tài liệu.
+
+Ví dụ:
+
+Hàng mới, NCC mới
+
+Hàng mới, NCC hiện thời
+
+Hàng đang KD, giảm giá nhập
+
+Hàng đang KD, tăng giá nhập
+
+NCC hiện thời, bổ sung hàng mới
+
+...
+
+Hàng đang KD, thay đổi trọng lượng
+
+Hàng đang KD, giảm giá theo CTKM
+
+...
+
+Hàng đang KD, thay đổi giá
+
+Điều rất đáng chú ý:
+
+Đây không đơn thuần là "status".
+
+11. Tại sao tôi nói 24 loại này không nên gọi là Status?
+
+Ví dụ:
+
+Hàng đang KD, tăng giá nhập
+
+đang mô tả business scenario.
+
+Trong khi status phải là:
+
+Draft
+Submitted
+Pending Approval
+Approved
+Rejected
+
+Hai khái niệm khác nhau.
+
+Vì vậy:
+
+PAKD Type
+≠
+PAKD Status
+
+Đây là một phát hiện rất quan trọng cho version mới.
+
+12. PAKD Type quyết định Workflow
+
+Tài liệu cho thấy rất rõ:
+
+PAKD bình thường
+
+Đi qua đầy đủ các bước:
+
+TPKD
+ ↓
+TĐG
+ ↓
+TCKT
+ ↓
+GĐKD
+ ↓
+TGĐ
+
+Tài liệu nói PAKD bình thường phải qua đầy đủ các bước phê duyệt từ TPKD đến Ban TGĐ.
+
+Giảm giá nhập
+TPKD
+ ↓
+GĐKD
+
+Không qua:
+
+TCKT
+TĐG
+
+Giảm giá theo CTKM
+TPKD
+ ↓
+DONE
+
+Chỉ cần TPKD phê duyệt.
+
+PA mở
+TPKD
+ ↓
+KTTH / Dsmart
+
+GĐKD và TGĐ chỉ xem, không cần phê duyệt.
+
+13. Đây chính là Workflow Engine của PAKD
+
+Nếu bỏ giao diện 2017 đi và chỉ nhìn business logic:
+
+                PAKD Type
+                    │
+                    ▼
+              Determine Route
+                    │
+        ┌───────────┼────────────┐
+        ▼           ▼            ▼
+     Normal      Discount       Open
+        │
+        ▼
+    TPKD
+        │
+        ▼
+   TĐG + TCKT
+        │
+        ▼
+      GĐKD
+        │
+        ▼
+       TGĐ
+
+Đây chính là lý do PAKD có thể trở thành use case đầu tiên cho Workflow Platform.
+
+14. Workflow không hoàn toàn sequential
+
+Đây là một insight quan trọng.
+
+Trong PAKD bình thường, TĐG và TCKT có thể cùng tham gia.
+
+Tài liệu nói:
+
+nếu một trong hai phòng Kế toán hoặc TĐG đã đồng ý nhưng phòng còn lại không đồng ý, sau khi chỉnh sửa phải có Note để phòng đã duyệt xem lại.
+
+Điều này cho thấy workflow có tính chất:
+
+             TPKD
+               │
+               ▼
+       ┌───────┴────────┐
+       │                │
+       ▼                ▼
+      TĐG              TCKT
+       │                │
+       └───────┬────────┘
+               ▼
+              GĐKD
+
+Tức là parallel review/approval có khả năng tồn tại.
+
+Đây là một yêu cầu rất quan trọng cho workflow engine mới.
+
+15. Rework — một tính năng cực kỳ quan trọng
+
+PAKD có thể bị trả về.
+
+Ví dụ:
+
+Sales
+  │
+  ▼
+TPKD
+  │
+  ▼
+TĐG ✓
+  │
+  ▼
+TCKT ✗
+  │
+  ▼
+Return
+  │
+  ▼
+Sales sửa
+
+Sau đó phải xử lý lại.
+
+Đặc biệt tài liệu còn nói:
+
+phòng đã approve trước đó phải xem lại phương án sau khi phương án bị phòng khác trả về và được sửa.
+
+Đây không phải workflow đơn giản:
+
+Approve / Reject
+
+mà là:
+
+Approve
+Return
+Modify
+Review Again
+16. Comment là một business object riêng
+
+PAKD 2017 có khái niệm:
+
+Ý kiến.
+
+Nhân viên TĐG/TCKT:
+
+View PAKD
++
+View documents
++
+Comment
+
+nhưng:
+
+Cannot approve
+Cannot reject
+
+Trưởng phòng:
+
+View
++
+Read comments
++
+Approve
++
+Return
+
+Đây là một distinction rất quan trọng:
+
+Viewer
+Reviewer
+Approver
+
+không phải cùng một quyền.
+
+17. Directed Comment / To
+
+Tài liệu có chức năng:
+
+"TO" để chỉ đích danh đối tượng nhận ý kiến.
+
+Ví dụ:
+
+CEO
+ │
+ └── Comment → Chief Accountant
+
+Chief Accountant nhìn thấy comment đó được highlight.
+
+Đây là một dạng:
+
+Directed communication inside workflow
+
+Trong platform mới, đây có thể trở thành capability chung:
+
+Task
+ ├── Comment
+ ├── Mention
+ ├── Directed comment
+ └── Attachment
+18. Status và Visual Indicator
+
+PAKD 2017 dùng "đèn":
+
+Green = approved
+Red = returned
+
+và có các đèn tương ứng với các bộ phận.
+
+Ví dụ:
+
+PA001
+
+Sales       🟢
+TĐG         🟢
+TCKT        🟢
+GĐKD        🟢
+TGĐ         🔴
+
+Nếu TGĐ reject:
+
+TPKD → 🔴
+
+để thể hiện cần làm lại.
+
+[ANALYSIS]
+
+Đây thực chất là một:
+
+Workflow State Visualization
+
+Trong web version, chúng ta nên biến nó thành một workflow timeline thay vì chỉ dùng màu đèn.
+
+Ví dụ:
+
+✓ Sales
+   │
+✓ TĐG
+   │
+✓ TCKT
+   │
+✓ GĐKD
+   │
+✕ TGĐ
+   │
+↩ Rework
+19. Time Tracking / SLA
+
+Tài liệu có:
+
+"Số ngày XL" — số ngày xử lý.
+
+Trưởng phòng/lãnh đạo được yêu cầu đảm bảo số ngày xử lý đúng quy định.
+
+Ngoài ra hệ thống có chức năng:
+
+bật/tắt phần tính thời gian xử lý.
+
+Vậy PAKD đã có SLA/time tracking primitive.
+
+Version mới có thể nâng cấp thành:
+
+Task SLA
+    │
+    ├── Start time
+    ├── Due time
+    ├── Processing time
+    ├── Overdue
+    └── Escalation
+20. Document Management
+
+PAKD có file đính kèm.
+
+Nhân viên Kinh doanh:
+
+đưa tài liệu vào PAKD.
+
+Các reviewer có thể xem tài liệu.
+
+Văn phòng có thể in PAKD và tài liệu liên quan.
+
+Vì vậy:
+
+PAKD
+ │
+ ├── Document A
+ ├── Document B
+ └── Document C
+
+Document là capability khá rõ ràng để đưa lên platform.
+
+21. Commercial Terms
+
+PAKD không chỉ quản lý proposal.
+
+Nó còn có:
+
+"Điều khoản thương mại".
+
+Chức năng này dùng để lập điều khoản thương mại cho hợp đồng với nhà cung cấp và được đính kèm với mỗi phương án ký mới hoặc ký tiếp.
+
+Có thể mô hình hóa:
+
+Supplier
+   │
+   └── Contract
+          │
+          └── Commercial Terms
+                   │
+                   └── PAKD
+
+Đây là business object quan trọng.
+
+22. Supplier Payment
+
+PAKD còn hỗ trợ:
+
+theo dõi công nợ thanh toán nhà cung cấp dựa trên lượng hàng nhập và hàng xuất trả trên Dsmart.
+
+Quy trình:
+
+Dsmart
+  │
+  ├── Goods received
+  └── Goods returned
+          │
+          ▼
+      PAKD
+          │
+          ▼
+ Payment Statement
+          │
+          ▼
+      Accounting
+
+Nhân viên Kinh doanh lập bảng kê, chuyển Kế toán đối chiếu rồi thanh toán.
+
+23. Payment Statement
+
+Hệ thống cho phép nhập:
+
+mã chủ hàng;
+thời gian nhập hàng;
+điểm nhập hàng;
+hàng xuất trả.
+
+Sau đó:
+
+Get Data
+   ↓
+Create Payment Statement
+   ↓
+Update debt information
+   ↓
+Approval information
+   ↓
+Print / PDF
+
+Đây là một business process riêng.
+
+24. Promotion / CTKM
+
+PAKD có một loại nghiệp vụ đặc biệt:
+
+Chương trình khuyến mại.
+
+Người dùng tạo PAKD rồi chọn:
+
+Giảm giá theo CTKM
+
+Sau đó chọn danh sách mã hàng từ Dsmart và thiết lập:
+
+thời gian;
+giá trị khuyến mại;
+giá nhập;
+giá bán;
+địa điểm áp dụng.
+
+Mô hình:
+
+Promotion
+  │
+  ├── Start Date
+  ├── End Date
+  ├── Product List
+  ├── Store/Region
+  ├── Purchase Price
+  └── Selling Price
+25. Excel Import
+
+PAKD cho phép:
+
+import thông tin hàng hóa từ file Excel.
+
+Đây là một dấu hiệu quan trọng về nhu cầu thực tế:
+
+Người dùng không chỉ nhập dữ liệu thủ công.
+
+Họ cần:
+
+External Data
+      ↓
+Excel
+      ↓
+Import
+      ↓
+Validation
+      ↓
+PAKD
+
+[PROPOSAL]
+
+Trong platform mới, nên coi Import là một capability:
+
+Import Job
+ ├── Upload
+ ├── Mapping
+ ├── Validation
+ ├── Preview
+ ├── Import
+ └── Error report
+26. Dsmart Integration
+
+Đây là một trong những integration quan trọng nhất.
+
+PAKD có thể lấy dữ liệu hàng hóa từ Dsmart.
+
+Sau khi PAKD được duyệt:
+
+PAKD
+  │
+  ▼
+KTTH
+  │
+  ▼
+Dsmart
+
+KTTH chọn vùng rồi:
+
+Đồng bộ giá
+
+để cập nhật giá bán lẻ vào database Dsmart tại trung tâm.
+
+Sau đó có thể:
+
+Center
+  │
+  ├── Compare
+  │
+  └── Sync
+       ↓
+    Stores
+27. Đây là một "Business Integration Process"
+
+Không đơn giản:
+
+API call
+
+Mà là:
+
+PAKD Approved
+       │
+       ▼
+Select Region
+       │
+       ▼
+Validate Price
+       │
+       ▼
+Sync Center
+       │
+       ▼
+Compare
+       │
+       ▼
+Sync Stores
+
+Đây là một workflow riêng.
+
+28. Reporting
+
+PAKD có nhiều reporting capability.
+
+Ví dụ:
+
+tìm theo số PAKD;
+theo người lập;
+theo ngành hàng;
+theo ngày;
+lọc PAKD đã duyệt;
+tổng hợp;
+Excel export.
+
+KSNB có thể:
+
+xuất toàn bộ dữ liệu ra Excel để đối chiếu.
+
+Nhân viên Kinh doanh cũng có:
+
+"Lấy dữ liệu tổng" và "Tổng hợp số liệu".
+
+29. Audit / History
+
+PAKD có:
+
+lịch sử phương án.
+
+và:
+
+lịch sử thay đổi giá của một mã hàng theo từng PAKD hoặc toàn bộ PAKD.
+
+Điều này rất quan trọng.
+
+Có thể hình dung:
+
+Product 123
+
+Price History
+──────────────────────────
+PA001 → 100,000
+PA017 → 105,000
+PA029 → 110,000
+PA050 → 115,000
+
+Đây là audit trail của business data, không chỉ là system log.
+
+30. PAKD có hai loại "History"
+
+Tôi muốn phân biệt:
+
+A. Workflow history
+TPKD approved
+TĐG approved
+TCKT returned
+Sales modified
+...
+B. Business data history
+Product price
+100K → 105K → 110K
+
+Hai loại này khác nhau.
+
+Trong platform mới nên quản lý riêng:
+
+Workflow History
+Business Data History
+System Audit Log
+31. Notification
+
+Hệ thống 2017 đã có notification qua SMS.
+
+Ví dụ:
+
+Sales staff
+PA bị TPKD trả về
+TPKD
+PA đang chờ xử lý
+PA bị TĐG trả về
+PA bị TCKT trả về
+PA bị GĐKD trả về
+PA bị TGĐ trả về
+GĐKD
+PA đã được TCKT + TĐG approve
+Văn phòng
+PA đã được GĐKD approve
+đang chờ TGĐ
+
+Đây chính là một notification workflow.
+
+32. PAKD 2017 đã có "My Work" dù chưa gọi như vậy
+
+Nhìn dưới góc System Analysis:
+
+TPKD
+ ↓
+Pending PAKD
+
+TĐG
+ ↓
+Pending PAKD
+
+TCKT
+ ↓
+Pending PAKD
+
+GĐKD
+ ↓
+Pending PAKD
+
+Mỗi người có danh sách việc của mình.
+
+Đây chính là concept:
+
+Task Inbox / My Work
+
+Tôi cho rằng đây nên trở thành một capability core của platform mới.
+
+33. Business Process hoàn chỉnh
+
+Bây giờ chúng ta có thể vẽ PAKD 2017 ở mức business:
+
+                         START
+                           │
+                           ▼
+                    Create PAKD
+                           │
+                           ▼
+                  Select PAKD Type
+                           │
+                           ▼
+                  Add Supplier
+                           │
+                           ▼
+                    Add Products
+                           │
+                           ▼
+                Input Price / Margin
+                           │
+                           ▼
+              Add Cost / Recommendation
+                           │
+                           ▼
+                     Attach Files
+                           │
+                           ▼
+                       Submit
+                           │
+                           ▼
+                         TPKD
+                           │
+                  ┌────────┴────────┐
+                  │                 │
+               Return             Approve
+                  │                 │
+                  ▼                 ▼
+                Rework        Determine Route
+                                    │
+                    ┌───────────────┼───────────────┐
+                    │               │               │
+                  Normal       Discount/Open      CTKM
+                    │               │               │
+                    ▼               ▼               ▼
+               TĐG + TCKT         GĐKD             TPKD
+                    │               │               │
+                    ▼               ▼               ▼
+                   GĐKD            ...             Done
+                    │
+                    ▼
+                   TGĐ
+                    │
+             ┌──────┴──────┐
+             │             │
+           Return        Approve
+             │             │
+             ▼             ▼
+           Rework        Approved
+                           │
+                           ▼
+                    Office / KTTH
+                           │
+                           ▼
+                       Dsmart
+                           │
+                           ▼
+                    Retail Price
+                           │
+                           ▼
+                          END
+
+Đây là Business Process, không phải architecture.
+
+34. Bây giờ chúng ta nhìn PAKD dưới góc "System Capability"
+
+Tôi phân loại toàn bộ chức năng của tài liệu như sau.
+
+🟢 Nhóm 1 — Rất rõ ràng là Platform Capability
+Identity
+User
+Login
+Authorization
+Role
+Permission
+Workflow
+Submit
+Approve
+Return
+Rework
+Parallel approval
+Task
+Pending
+Processing
+Completed
+Comment
+Comment
+Directed comment
+Document
+Attachment
+View
+Print
+Notification
+SMS
+Pending notification
+Return notification
+Audit
+History
+Processing time
+Reporting
+Filter
+Export Excel
+
+Đây là những thứ tôi rất muốn đưa vào Platform Core.
+
+35. 🟡 Shared Capability
+
+Một số thứ có thể dùng chung nhưng cần phân tích thêm:
+
+Supplier
+Product
+Contract
+Price
+Region
+Payment
+Approval
+Document
+
+Ví dụ Procurement cũng có:
+
+Supplier
+Purchase Order
+Contract
+Approval
+
+nhưng không có nghĩa chúng ta phải biến Supplier thành một model quá generic.
+
+36. 🔵 PAKD-specific
+
+Những thứ có vẻ đặc thù PAKD:
+
+PAKD
+PA gốc
+Lần bổ sung
+24 PAKD scenarios
+Business Proposal calculation
+CTKM
+PA mở
+
+Đây nên nằm trong:
+
+PAKD Application
+
+không nên nhét vào Platform Core.
+
+37. 🔴 Legacy / cần đánh giá lại
+
+Một số thứ trong hệ thống cũ không nhất thiết phải giữ nguyên.
+
+Ví dụ:
+
+Right click everywhere
+Desktop tray application
+Manual update software
+SMS syntax:
+1:username
+2:username
+Manual printing
+Paper approval
+
+Tài liệu mô tả việc người dùng phải cập nhật version bằng:
+
+About → Download new version.
+
+Web SaaS sẽ loại bỏ hoàn toàn cách vận hành này.
+
+38. Một điểm rất đáng chú ý: Paper Approval
+
+PAKD 2017 chưa phải workflow digital hoàn toàn.
+
+Có một bước:
+
+System approval
+      ↓
+Print
+      ↓
+Paper approval
+      ↓
+Office
+      ↓
+Update result back into system
+
+Tài liệu mô tả:
+
+Văn phòng in Hợp đồng cùng PAKD → trình Ban TGĐ phê duyệt bản cứng → sau đó cập nhật ý kiến vào phần mềm.
+
+Đây là một manual handoff giữa hệ thống số và quy trình giấy.
+
+39. Đây có thể là một mục tiêu cải tiến lớn của PAKD Web
+
+Version mới có thể:
+
+Old
+
+PAKD
+ ↓
+Print
+ ↓
+Paper
+ ↓
+CEO sign
+ ↓
+Office update
+
+thành:
+
+New
+
+PAKD
+ ↓
+CEO
+ ↓
+Digital Approval
+ ↓
+Electronic Document
+ ↓
+Completed
+
+Tất nhiên việc có được thay thế chữ ký giấy hay không phụ thuộc yêu cầu pháp lý/business của khách hàng. Tài liệu 2017 không cung cấp đủ thông tin để kết luận điều này.
+
+40. PAKD 2017 có một đặc điểm rất quan trọng: Business Rule nằm trong "PA Type"
+
+Ví dụ:
+
+PA Type = Normal
+
+→ workflow A.
+
+PA Type = Discount Import
+
+→ workflow B.
+
+PA Type = Promotion
+
+→ workflow C.
+
+PA Type = Open
+
+→ workflow D.
+
+Vậy:
+
+PA Type
+   │
+   ▼
+Business Rules
+   │
+   ▼
+Workflow
+
+Đây là abstraction rất quan trọng để xây version mới.
+
+41. Tôi sẽ không thiết kế 24 workflow độc lập
+
+Đây là một điểm tôi muốn bạn đặc biệt lưu ý.
+
+Nếu developer nhìn tài liệu và làm:
+
+Workflow 01
+Workflow 02
+Workflow 03
+...
+Workflow 24
+
+thì version mới sẽ lại trở thành hệ thống hard-coded.
+
+Tốt hơn:
+
+PA Scenario
+     │
+     ▼
+Rules
+     │
+     ▼
+Workflow Definition
+
+Ví dụ:
+
+Scenario:
+"Giảm giá nhập"
+
+Rule:
+skip TĐG
+skip TCKT
+
+Workflow:
+TPKD → GĐKD
+42. Đây chính là bước chuyển từ PAKD 2017 → Platform
+
+PAKD 2017:
+
+IF scenario = X
+    workflow X
+
+IF scenario = Y
+    workflow Y
+
+Platform mới:
+
+Scenario
+    ↓
+Configuration
+    ↓
+Rule
+    ↓
+Workflow
+
+Business Admin có thể thay đổi configuration.
+
+43. Form cũng phải chuyển từ hard-coded → configurable
+
+PAKD 2017 có các field:
+
+Tên hàng
+Xuất xứ
+Hình thức hợp đồng
+Mã ngành hàng
+Hiệu lực giá bán
+Hiệu lực giá nhập
+Giá nhập
+Tỷ lệ lãi
+Giá bán vùng
+Chi phí
+Kiến nghị
+Tài liệu
+
+Trong version mới, chúng ta có thể định nghĩa:
+
+PAKD Form
+│
+├── Basic Information
+├── Supplier
+├── Products
+├── Pricing
+├── Cost
+├── Recommendation
+└── Attachments
+
+Nhưng field nào configurable và field nào core cần được quyết định sau khi phân tích sâu hơn.
+
+44. PAKD 2017 nhìn dưới góc Data Model
+
+Ở mức conceptual, tôi tạm mô hình hóa:
+
+Tenant
+  │
+  ├── Users
+  │
+  ├── Suppliers
+  │
+  ├── Products
+  │
+  └── PAKDs
+          │
+          ├── PAKD Type
+          │
+          ├── PAKD Items
+          │      │
+          │      └── Product
+          │
+          ├── Commercial Terms
+          │
+          ├── Documents
+          │
+          ├── Comments
+          │
+          ├── Workflow Instance
+          │       │
+          │       ├── Tasks
+          │       ├── Approvals
+          │       └── History
+          │
+          └── Price History
+
+Lưu ý: Đây là conceptual model tôi suy ra từ tài liệu, không phải schema database 2017.
+
+45. PAKD dưới góc "State"
+
+Một PAKD có thể trải qua:
+
+Draft
+   ↓
+Submitted
+   ↓
+TPKD Processing
+   ↓
+TĐG/TCKT Processing
+   ↓
+GĐKD Processing
+   ↓
+TGĐ Processing
+   ↓
+Approved
+
+Nhưng cũng có:
+
+Rejected / Returned
+   ↓
+Rework
+   ↓
+Resubmit
+
+Vì vậy PAKD là một stateful business object.
+
+46. PAKD dưới góc "Lifecycle"
+
+Tôi đề xuất hiểu lifecycle như:
+
+                         ┌──────────────┐
+                         │    Draft     │
+                         └──────┬───────┘
+                                │ Submit
+                                ▼
+                         ┌──────────────┐
+                         │ In Approval  │
+                         └──────┬───────┘
+                                │
+                 ┌──────────────┼──────────────┐
+                 │                             │
+                 ▼                             ▼
+             Approved                       Returned
+                 │                             │
+                 ▼                             ▼
+              Executed                       Rework
+                 │                             │
+                 │                             └──────► Submit
+                 ▼
+                Done
+47. Nhưng cần phân biệt Status với Workflow Task
+
+Ví dụ:
+
+PAKD status = IN_APPROVAL
+
+không có nghĩa tất cả mọi người đều phải làm gì đó.
+
+Có thể:
+
+PAKD
+ status = IN_APPROVAL
+
+Tasks:
+ ├── TĐG → Pending
+ ├── TCKT → Approved
+ └── GĐKD → Waiting
+
+Đây là lý do platform nên có:
+
+Business Object State
++
+Workflow State
++
+Task State
+
+tách biệt.
+
+48. Một trong những vấn đề lớn của PAKD 2017
+
+Tài liệu cho thấy business process khá phức tạp nhưng được thể hiện bằng:
+
+24 loại phương án
++
+đèn màu
++
+note
++
+nút approve/return
+
+Đối với năm 2017 có thể phù hợp.
+
+Nhưng nếu bạn muốn:
+
+100 tenants
+1000 users/tenant
+500k transactions/day
+
+thì chúng ta cần mô hình hóa workflow rõ ràng hơn.
+
+49. Tôi đề xuất Business Model mới của PAKD
+
+Ở cấp business:
+
+PAKD
+│
+├── Scenario
+│
+├── Supplier
+│
+├── Items
+│
+├── Pricing
+│
+├── Commercial Terms
+│
+├── Documents
+│
+├── Comments
+│
+└── Workflow
+      │
+      ├── Tasks
+      ├── Approvals
+      ├── SLA
+      └── History
+50. Platform Model
+
+Sau khi tách PAKD ra:
+
+                    PLATFORM
+                       │
+       ┌───────────────┼────────────────┐
+       │               │                │
+   Identity         Workflow          Rule
+       │               │                │
+   Tenant             Task          Decision
+   User              Approval         Table
+   Role              SLA
+   Permission        Delegation
+       │
+       ├───────────────┬───────────────┐
+       │               │               │
+     Form          Document       Notification
+       │               │               │
+       └───────────────┼───────────────┘
+                       │
+                    Audit
+
+PAKD:
+
+                     PAKD
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+      PAKD           Product        Supplier
+      Scenario       Pricing        Contract
+      CTKM           ...
+51. Đây là boundary tôi hiện tại đề xuất
+Platform Core
+Tenant
+User
+Role
+Permission
+
+Workflow
+Task
+Approval
+Comment
+
+Rule
+Decision Table
+
+Form
+Document
+
+Notification
+Audit
+
+Integration
+Reporting
+PAKD Application
+PAKD
+PA Scenario
+PA Supplement
+Supplier-specific proposal
+Product pricing
+Promotion
+Commercial Terms
+Supplier Payment
+Retail Price Update
+52. Tuy nhiên có 3 khu vực tôi CHƯA muốn quyết định
+
+Đây là những phần cần nghiên cứu thêm từ business trước khi thiết kế database.
+
+1. Supplier
+
+Có phải:
+
+Platform-wide Supplier
+
+hay:
+
+PAKD-specific Supplier
+
+hay:
+
+Domain Supplier
+
+Chưa đủ thông tin.
+
+2. Product
+
+Tương tự.
+
+PAKD lấy product từ Dsmart.
+
+Nhưng nếu sau này:
+
+Inventory
+Sales
+Procurement
+
+cùng sử dụng Product thì cần xác định:
+
+Product có phải master data dùng chung không?
+
+Tài liệu 2017 không đủ để kết luận.
+
+3. Contract
+
+PAKD có Commercial Terms nhưng chưa đủ thông tin để xác định:
+
+Contract có phải một business object độc lập dùng cho Procurement/Sales hay chỉ là một phần của PAKD?
+
+Cần business clarification.
+
+53. Bản đồ chức năng PAKD 2017
+
+Tôi tóm tắt toàn bộ tài liệu thành:
+
+PAKD 2017
+│
+├── A. Identity & Access
+│   ├── Login
+│   ├── User
+│   └── Role/Permission
+│
+├── B. Proposal
+│   ├── Create
+│   ├── Supplement
+│   ├── Search
+│   ├── Product
+│   ├── Pricing
+│   ├── Cost
+│   ├── Recommendation
+│   └── Attachment
+│
+├── C. Workflow
+│   ├── Submit
+│   ├── Review
+│   ├── Comment
+│   ├── Approve
+│   ├── Return
+│   ├── Rework
+│   ├── Processing Time
+│   └── History
+│
+├── D. Promotion
+│   ├── Campaign
+│   ├── Product selection
+│   ├── Region
+│   ├── Price
+│   └── Period
+│
+├── E. Commercial Terms
+│   └── Supplier Contract Terms
+│
+├── F. Supplier Payment
+│   ├── Import data
+│   ├── Debt
+│   ├── Payment statement
+│   └── PDF
+│
+├── G. Price Management
+│   ├── Center
+│   ├── Region
+│   └── Stores
+│
+├── H. Integration
+│   └── Dsmart
+│
+├── I. Reporting
+│   ├── Search
+│   ├── Filter
+│   ├── Summary
+│   └── Excel
+│
+├── J. Audit
+│   ├── Proposal history
+│   └── Price history
+│
+└── K. Notification
+    └── SMS
+54. Điều tôi thấy quan trọng nhất sau khi đọc tài liệu
+
+Nếu trước đây chúng ta nói:
+
+"PAKD là application đầu tiên của Business Process Platform."
+
+thì sau khi đọc tài liệu, tôi càng tin rằng hướng đó phù hợp.
+
+Lý do không phải vì PAKD có nhiều màn hình.
+
+Mà vì PAKD có đầy đủ các yếu tố của một business-process application:
+
+                  PAKD
+                    │
+        ┌───────────┼────────────┐
+        │           │            │
+      Data        Process       Rules
+        │           │            │
+     Product      Workflow     Scenario
+     Supplier     Approval     PAKD Type
+     Pricing      Task         PA Open
+        │           │            │
+        └───────────┼────────────┘
+                    │
+               Integration
+                    │
+                  Dsmart
+55. Và tôi nhìn thấy 4 "engine" trong PAKD
+
+Nếu nhìn ở cấp architecture/business platform:
+
+Engine 1 — Workflow Engine
+Ai làm?
+Làm bước nào?
+Khi nào?
+Approve/Return?
+Engine 2 — Rules Engine
+Nếu PAKD loại X
+→ workflow Y
+Engine 3 — Form/Data Engine
+Nhập dữ liệu gì?
+Field nào?
+Validation nào?
+Engine 4 — Integration Engine
+Lấy dữ liệu từ Dsmart
+Đẩy giá sang Dsmart
+
+Đây chính là hạt nhân của platform mà bạn muốn xây.
+
+56. Nhưng có một điều tôi muốn bạn tránh
+
+Đừng bắt đầu dự án mới bằng:
+
+"Tôi sẽ làm một generic workflow platform."
+
+Nếu làm vậy, rất dễ tạo ra một hệ thống generic khổng lồ mà không giải quyết được PAKD.
+
+Tôi đề xuất tư duy ngược:
+
+                PAKD
+                 │
+                 ▼
+        Identify real patterns
+                 │
+                 ▼
+       Extract reusable capability
+                 │
+                 ▼
+              PLATFORM
+
+Chứ không phải:
+
+Platform
+   ↓
+Try to fit PAKD into it
+57. Một ví dụ cực kỳ quan trọng
+
+PAKD có:
+
+TPKD
+TĐG
+TCKT
+GĐKD
+TGĐ
+
+Đừng thiết kế Workflow Engine kiểu:
+
+Step = TPKD
+Step = TĐG
+Step = TCKT
+
+vì như vậy platform vẫn phụ thuộc PAKD.
+
+Hãy thiết kế concept:
+
+Step
+  │
+  └── Assignment Rule
+          │
+          ├── Role
+          ├── User
+          ├── Department
+          ├── Manager
+          └── Business Rule
+
+Khi đó PAKD cấu hình:
+
+Step 1 → Role: Sales Manager
+Step 2 → Role: Pricing Reviewer
+Step 3 → Role: Finance Manager
+Step 4 → Role: Business Director
+Step 5 → Role: CEO
+
+Procurement có thể cấu hình:
+
+Step 1 → Requester Manager
+Step 2 → Procurement Manager
+Step 3 → Finance
+Step 4 → Director
+
+Đây chính là cách PAKD trở thành application trên platform.
+
+58. Mapping PAKD → Platform
+
+Đây là bảng tôi muốn bạn giữ lại.
+
+PAKD 2017	Platform mới
+User	Identity
+Account	User
+Quyền account	Permission
+Phòng ban	Organization
+PAKD	Business Object
+PA gốc	Object lifecycle/version
+Bổ sung PA	Revision/Supplement
+24 loại PA	Business Scenario
+Đèn xanh/đỏ	Workflow state
+Chuyển phê duyệt	Submit
+Đồng ý	Approve
+Trả về	Reject/Return
+Ý kiến	Comment
+To	Directed Comment
+Số ngày XL	SLA/Processing Time
+File đính kèm	Document
+Lịch sử PA	Workflow/Audit History
+Lịch sử giá	Business Data History
+SMS	Notification
+Excel Import	Import Engine
+Excel Export	Reporting/Export
+Dsmart	Integration
+Đồng bộ giá	Integration Workflow
+Điều khoản thương mại	Domain Object
+Thanh toán NCC	Domain Process
+CTKM	Domain Process
+59. Kết luận Business Analysis
+
+Sau khi đọc toàn bộ tài liệu, tôi sẽ mô tả PAKD 2017 bằng một câu như sau:
+
+PAKD là một hệ thống quản lý quy trình phê duyệt các phương án kinh doanh, trong đó một phương án chứa thông tin nhà cung cấp, hàng hóa, giá và điều kiện kinh doanh; phương án được phân loại theo nhiều business scenario, đi qua các bước review/approval khác nhau tùy scenario, có hỗ trợ comment, tài liệu, rework, theo dõi thời gian xử lý, lịch sử và cuối cùng có thể kích hoạt các nghiệp vụ hậu phê duyệt như cập nhật giá và đồng bộ dữ liệu với Dsmart.
+
+Đây là cách tôi nghĩ chúng ta nên nhìn PAKD.
+
+Không phải:
+
+"Một phần mềm nhập phương án."
+
+Mà là:
+
+Business Process Management Application cho một chuỗi nghiệp vụ commercial/pricing/procurement.
+
+60. Và đây là bước tiếp theo tôi khuyên chúng ta làm
+
+Bản phân tích trên mới là Level 1 — Business/System Overview.
+
+Để xây hệ thống mới production-grade, tôi nghĩ chúng ta nên đi tiếp theo thứ tự:
+
+LEVEL 1
+Business Overview
+        │
+        ▼
+LEVEL 2
+Detailed Business Process
+        │
+        ▼
+LEVEL 3
+Use Case
+        │
+        ▼
+LEVEL 4
+Business Object / Data Model
+        │
+        ▼
+LEVEL 5
+Business Rules
+        │
+        ▼
+LEVEL 6
+Workflow Model
+        │
+        ▼
+LEVEL 7
+Platform Capability
+        │
+        ▼
+LEVEL 8
+System Architecture
+        │
+        ▼
+LEVEL 9
+Technology Architecture
+
+Tôi đặc biệt đề xuất bước kế tiếp là Level 2: dựng lại toàn bộ PAKD 2017 thành các Business Process Diagram, nhưng không dùng BPMN ngay từ đầu.
+
+Chúng ta sẽ lấy chính tài liệu và dựng khoảng:
+
+Create PAKD
+Normal PAKD Approval
+Discount Import Approval
+Promotion/CTKM
+Open PAKD
+Rework / Return
+Commercial Terms
+Supplier Payment
+Retail Price Synchronization
+Audit & Monitoring
+
+Sau đó tôi sẽ chỉ cho bạn trên từng process:
+
+Actor
+  ↓
+Input
+  ↓
+Action
+  ↓
+Business Rule
+  ↓
+Decision
+  ↓
+Output
+  ↓
+Next Actor
+
+và từ đó chúng ta sẽ tự nhiên phát hiện ra Workflow Engine cần có những capability nào, thay vì đoán architecture trước.
+
+Đó sẽ là bước rất quan trọng để chuyển từ "tài liệu hướng dẫn sử dụng PAKD 2017" → "Business Requirements Specification cho PAKD Web v2".
+
+Branched from Phân tích kiến trúc web
+
+bạn hãy thực hiện bước chuyển từ "tài liệu hướng dẫn sử dụng PAKD 2017" → "Business Requirements Specification cho PAKD Web v2". tôi yêu cầu phải viết Business Requirements Specification chi tiết nhất có thể.
+
+Được. Tôi sẽ chuyển từ User Manual PAKD 2017 sang một Business Requirements Specification (BRS) cho PAKD Web v2 theo hướng có thể dùng làm nền tảng để sau này tiếp tục chuyển thành SRS → Architecture → Database Design → API Design → UI/UX → Test Cases.
+
+Tôi sẽ cố tình không nhảy ngay vào công nghệ. BRS phải trả lời trước:
+
+Business cần hệ thống làm gì, ai làm, dữ liệu gì, quy trình gì, rule gì, hệ thống phải đảm bảo điều gì và phạm vi nào chưa được xác định.
+
+Một điểm quan trọng: tôi sẽ phân biệt:
+
+[AS-IS] — hành vi/chức năng được xác định từ PAKD 2017.
+[TO-BE] — yêu cầu tôi đề xuất cho Web v2 dựa trên mục tiêu SaaS/multi-tenant/configurable của bạn.
+[OPEN] — vấn đề cần business xác nhận, chưa nên tự ý quyết định.
+BUSINESS REQUIREMENTS SPECIFICATION
+PAKD Web v2
+
+Document Type: Business Requirements Specification
+System: PAKD Web v2
+Product Direction: Business Process / Workflow Platform
+Initial Application: Phương án kinh doanh (PAKD)
+Deployment Model: Cloud SaaS
+Target: Multi-tenant
+Version: Draft 1.0
+
+1. Document Purpose
+1.1. Mục đích tài liệu
+
+Tài liệu này định nghĩa các yêu cầu nghiệp vụ cho việc xây dựng PAKD Web v2, là phiên bản web/client-server của hệ thống PAKD 2017.
+
+Mục tiêu không chỉ là:
+
+"chuyển phần mềm desktop sang web."
+
+Mà là:
+
+tái thiết kế PAKD thành một business application chạy trên một nền tảng có khả năng cấu hình workflow, form, rule, integration và organization theo từng khách hàng.
+
+PAKD là application đầu tiên của platform.
+
+2. Business Vision
+BR-VIS-001 — Business Vision
+
+PAKD Web v2 phải cung cấp một hệ thống cho phép doanh nghiệp:
+
+Tạo và quản lý phương án kinh doanh.
+Quản lý toàn bộ vòng đời của phương án.
+Tự động hóa quy trình review/approval.
+Cho phép nhiều phòng ban cùng tham gia xử lý.
+Hỗ trợ parallel approval.
+Hỗ trợ return/rework.
+Theo dõi SLA.
+Quản lý tài liệu.
+Quản lý lịch sử.
+Gửi notification.
+Tích hợp với Dsmart và các hệ thống khác.
+Có khả năng cấu hình workflow mà không cần developer cho những thay đổi thông thường.
+Có khả năng mở rộng từ PAKD sang Inventory, Procurement và Sales.
+3. Business Goals
+BR-GOAL-001 — Giảm phụ thuộc vào development
+
+Hiện tại khi business thay đổi:
+
+Customer request
+       ↓
+Requirement
+       ↓
+Developer
+       ↓
+Coding
+       ↓
+Testing
+       ↓
+Deployment
+
+Web v2 hướng tới:
+
+Business Admin
+      ↓
+Configure
+      ↓
+Publish
+      ↓
+Business User
+
+Developer chỉ tham gia khi cần thay đổi platform capability hoặc logic phức tạp.
+
+4. Business Goals — Chi tiết
+ID	Goal	Mô tả
+G-001	Web-based	Không phụ thuộc desktop client
+G-002	SaaS	Một platform phục vụ nhiều customer
+G-003	Multi-tenant	Mỗi customer là một tenant độc lập
+G-004	Configurable workflow	Business Admin có thể cấu hình workflow
+G-005	Configurable form	Business Admin có thể cấu hình form
+G-006	Configurable rule	Business Admin có thể cấu hình business rule
+G-007	Extensible domain	Có thể phát triển Inventory/Procurement/Sales
+G-008	Maintainability	Giảm hard-code business logic
+G-009	Integration	Kết nối hệ thống bên ngoài
+G-010	Auditability	Có đầy đủ business history/audit
+G-011	Scalability	Hỗ trợ quy mô mục tiêu đã xác định
+G-012	Faster customization	Giảm thời gian đáp ứng customer
+5. Scope
+5.1. In Scope — PAKD Web v2
+Core PAKD
+PAKD creation
+PAKD editing
+PAKD submission
+PAKD approval
+PAKD return
+PAKD rework
+PAKD version/supplement
+PAKD search
+PAKD filtering
+PAKD reporting
+PAKD export
+Workflow
+Sequential approval
+Parallel approval
+Conditional branching
+Multiple approvers
+Delegation
+Escalation
+SLA
+Timeout
+Rework
+Versioning
+
+Các capability workflow này phù hợp với định hướng bạn đã xác định.
+
+Business Data
+Supplier
+Product
+Price
+Region
+Commercial Terms
+Promotion
+Payment information
+Platform
+Tenant
+User
+Organization
+Role
+Permission
+Form configuration
+Workflow configuration
+Rule configuration
+Notification
+Document
+Audit
+Integration
+REST
+SOAP
+Database
+File exchange
+
+Dsmart hiện có các dạng integration này theo thông tin bạn cung cấp.
+
+6. Out of Scope ban đầu
+
+Các nội dung sau chưa nên đưa vào MVP nếu chưa có business requirement cụ thể:
+
+Full ERP
+Full accounting system
+Full inventory management
+Full CRM
+Full procurement management
+Full sales management
+Payroll
+HR
+General-purpose BPMN designer hoàn chỉnh
+AI decision making
+
+Tuy nhiên platform phải được thiết kế sao cho sau này có thể mở rộng.
+
+7. Stakeholders
+BR-STK-001
+
+Hệ thống phải hỗ trợ các nhóm stakeholder sau.
+
+Business users
+Sales staff
+Sales manager
+Pricing/Risk reviewer
+Finance reviewer
+Business Director
+CEO/Executive
+Office
+Accounting
+Internal Control
+
+Các nhóm này tương ứng với các vai trò được mô tả trong PAKD 2017.
+
+8. Tenant Model
+BR-TEN-001
+
+Một tenant đại diện cho một customer/company.
+
+Platform
+│
+├── Tenant A
+│   ├── Users
+│   ├── Departments
+│   ├── Workflows
+│   ├── Forms
+│   └── PAKDs
+│
+├── Tenant B
+│   ├── Users
+│   ├── Departments
+│   ├── Workflows
+│   ├── Forms
+│   └── PAKDs
+│
+└── Tenant C
+9. Tenant Isolation
+BR-TEN-002
+
+User thuộc Tenant A:
+
+Không được nhìn thấy hoặc thao tác dữ liệu của Tenant B.
+
+Áp dụng cho:
+
+PAKD
+User
+Supplier
+Product
+Workflow
+Documents
+Reports
+Audit logs
+Configuration
+10. Tenant-specific Configuration
+
+Mỗi tenant có thể có:
+
+Organization
+Users
+Roles
+Forms
+Workflows
+Rules
+Notifications
+Integrations
+Master Data
+
+Ví dụ:
+
+Tenant A
+  Approval:
+  Sales → Finance → Director → CEO
+
+Tenant B
+  Approval:
+  Sales → Manager → CFO
+
+Hai tenant không cần dùng cùng workflow.
+
+11. Organization Model
+
+Hệ thống phải hỗ trợ:
+
+Company
+ └── Division
+      └── Department
+           └── Team
+                └── User
+
+Mức độ hierarchy phải configurable.
+
+12. User
+
+Mỗi user tối thiểu có:
+
+User ID
+Username
+Display Name
+Email
+Phone
+Tenant
+Department
+Status
+Roles
+13. Role
+
+Role mô tả vai trò nghiệp vụ.
+
+Ví dụ:
+
+Sales Staff
+Sales Manager
+Finance Reviewer
+Pricing Reviewer
+Director
+CEO
+Internal Controller
+
+Không nên hard-code các role này vào platform.
+
+14. Permission
+
+Permission mô tả:
+
+User được phép làm gì?
+
+Ví dụ:
+
+PAKD.CREATE
+PAKD.READ
+PAKD.UPDATE
+PAKD.SUBMIT
+PAKD.APPROVE
+PAKD.RETURN
+PAKD.CANCEL
+PAKD.EXPORT
+15. Role ≠ Permission
+
+Ví dụ:
+
+Role = Finance Reviewer
+
+Permissions:
+    PAKD.READ
+    PAKD.COMMENT
+
+Trong khi:
+
+Role = Finance Manager
+
+Permissions:
+    PAKD.READ
+    PAKD.COMMENT
+    PAKD.APPROVE
+    PAKD.RETURN
+
+PAKD 2017 đã thể hiện sự khác biệt này: reviewer có thể xem/cho ý kiến nhưng không nhất thiết có quyền approve.
+
+16. Business Object — PAKD
+BR-PA-001
+
+PAKD là business object trung tâm.
+
+PAKD phải chứa tối thiểu:
+
+PAKD
+├── Identification
+├── Scenario
+├── Supplier
+├── Products
+├── Pricing
+├── Costs
+├── Commercial Terms
+├── Recommendations
+├── Attachments
+├── Comments
+├── Workflow
+└── History
+17. PAKD Number
+BR-PA-002
+
+Hệ thống phải tự động sinh mã PAKD.
+
+PA đầu tiên là PA gốc.
+
+Các lần bổ sung phải được nhận diện riêng. PAKD 2017 quy định PA gốc và các lần bổ sung được đánh số tăng dần.
+
+18. PAKD Supplement
+
+Một PAKD có thể có:
+
+PA001
+ ├── Original
+ ├── Supplement 01
+ ├── Supplement 02
+ └── Supplement 03
+
+Business requirement:
+
+Người dùng phải có khả năng tạo phiên bản/bổ sung mới dựa trên PAKD hiện tại mà không làm mất lịch sử.
+
+19. PAKD Scenario
+
+PAKD 2017 có nhiều loại phương án, ví dụ:
+
+Hàng mới/NCC mới
+Hàng mới/NCC hiện thời
+Thay đổi giá
+Giảm giá nhập
+Tăng giá nhập
+Bổ sung hàng
+Thay đổi trọng lượng
+Chương trình khuyến mại...
+
+Tài liệu liệt kê 24 hình thức phương án.
+
+BR-PA-003
+
+PAKD Web v2 phải hỗ trợ configurable PAKD Scenario.
+
+Không hard-code 24 scenario vào source code.
+
+20. Scenario ≠ Status
+
+Đây là requirement quan trọng.
+
+Scenario:
+    "Giảm giá nhập"
+
+Status:
+    "Pending Approval"
+
+Hai khái niệm phải được tách biệt.
+
+21. PAKD Status
+
+Hệ thống phải hỗ trợ tối thiểu:
+
+Draft
+Submitted
+In Review
+Pending Approval
+Returned
+Rework
+Approved
+Rejected
+Cancelled
+Completed
+
+Tên cuối cùng cần được business confirm.
+
+22. PAKD Lifecycle
+Draft
+  │
+  ▼
+Submitted
+  │
+  ▼
+Review
+  │
+  ├─────────────┐
+  │             │
+  ▼             ▼
+Approved      Returned
+  │             │
+  │             ▼
+  │           Rework
+  │             │
+  │             └──────► Resubmit
+  │
+  ▼
+Completed
+23. Create PAKD
+BR-PA-010
+
+Sales user phải có khả năng tạo PAKD.
+
+Các bước business:
+
+Select Scenario
+      ↓
+Select Supplier
+      ↓
+Add Products
+      ↓
+Enter Pricing
+      ↓
+Enter Costs
+      ↓
+Enter Recommendation
+      ↓
+Attach Documents
+      ↓
+Save Draft
+
+PAKD 2017 yêu cầu lựa chọn nhà cung cấp và sau đó hệ thống phát sinh số phương án.
+
+24. Save Draft
+
+User có thể lưu PAKD chưa hoàn thành.
+
+Draft:
+
+chưa chạy workflow;
+có thể chỉnh sửa;
+chưa tạo approval task.
+25. Submit PAKD
+
+Khi user Submit:
+
+Hệ thống phải:
+
+Validate dữ liệu.
+Validate required fields.
+Validate business rules.
+Determine workflow.
+Create workflow instance.
+Create first task.
+Notify assignee.
+Ghi audit log.
+26. Validation
+
+Validation gồm 3 tầng:
+
+Field validation
+Price > 0
+Date valid
+Required field
+Form validation
+If Scenario = Promotion
+→ Promotion period required
+Business validation
+If purchase price increases
+→ additional approval required
+27. Supplier
+
+PAKD phải cho phép lựa chọn supplier.
+
+PAKD 2017 lấy supplier theo mã và hiển thị danh sách tương ứng.
+
+28. Supplier Integration
+
+Web v2 phải hỗ trợ supplier master data từ:
+
+internal database;
+REST API;
+SOAP;
+file import.
+
+Nguồn dữ liệu cụ thể phải configurable theo tenant.
+
+29. Product
+
+PAKD phải hỗ trợ nhiều product/item.
+
+Mỗi item có thể chứa:
+
+Product Code
+Product Name
+Origin
+Category
+Current Price
+Purchase Price
+Selling Price
+Margin
+Region
+Effective Date
+
+Các field cụ thể cần mapping với Dsmart và business xác nhận.
+
+30. Product Import
+
+PAKD 2017 hỗ trợ import hàng hóa từ Excel.
+
+Web v2 phải hỗ trợ:
+
+Upload
+ ↓
+Parse
+ ↓
+Validate
+ ↓
+Preview
+ ↓
+Import
+ ↓
+Error Report
+31. Pricing
+
+PAKD phải quản lý:
+
+Purchase Price
+Selling Price
+Margin
+Effective Date
+Region
+
+Tài liệu yêu cầu nhập giá nhập, tỷ lệ lãi và giá bán theo vùng.
+
+32. Region
+
+Giá bán có thể áp dụng theo region/store.
+
+PAKD 2017 có khái niệm vùng, trong đó vùng 0 có thể đại diện toàn bộ hệ thống và các vùng khác có thể đại diện phạm vi cụ thể.
+
+Web v2 phải mô hình hóa Region như một business dimension thay vì hard-code.
+
+33. Price Effective Period
+
+Mỗi price change phải có:
+
+Effective From
+Effective To
+
+Business cần xác nhận liệu có được phép:
+
+overlapping period;
+backdated price;
+future price;
+cancel scheduled price.
+
+[OPEN]
+
+34. Cost
+
+PAKD phải cho phép khai báo các chi phí liên quan.
+
+Các loại cost cụ thể cần được xác nhận từ business vì manual không đủ để chuẩn hóa thành một taxonomy hoàn chỉnh.
+
+35. Recommendation
+
+PAKD phải hỗ trợ phần:
+
+Kiến nghị/đề xuất.
+
+Đây là phần narrative/business justification của proposal.
+
+Nên hỗ trợ:
+
+rich text;
+structured fields;
+attachment;
+comment.
+36. Attachment
+
+User phải có khả năng:
+
+upload;
+download;
+preview nếu định dạng hỗ trợ;
+delete khi còn quyền;
+xem metadata;
+gắn attachment vào PAKD.
+37. Attachment Security
+
+Document phải inherit security của PAKD.
+
+Nếu user không được xem PAKD:
+
+user không được xem attachment.
+
+38. Workflow Requirement
+
+Đây là phần quan trọng nhất của BRS.
+
+Workflow phải là configuration, không hard-code.
+
+39. Workflow Definition
+
+Mỗi workflow definition gồm:
+
+Workflow
+├── Version
+├── Trigger
+├── Nodes
+├── Transitions
+├── Conditions
+├── Assignment
+├── SLA
+├── Notification
+└── Error handling
+40. Sequential Approval
+
+Ví dụ:
+
+Sales Manager
+      ↓
+Finance
+      ↓
+Director
+      ↓
+CEO
+
+Task sau chỉ được activate khi task trước hoàn thành.
+
+41. Parallel Approval
+
+PAKD 2017 có tình huống TĐG và TCKT cùng tham gia review/approval.
+
+Web v2 phải hỗ trợ:
+
+             Sales Manager
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+       Finance           Pricing
+          │                 │
+          └────────┬────────┘
+                   ▼
+                Director
+42. Join Condition
+
+Parallel tasks phải có join condition.
+
+Ví dụ:
+
+ALL must approve
+
+hoặc:
+
+ANY one approves
+
+hoặc:
+
+2 of 3 approve
+
+Đây là capability platform.
+
+43. Conditional Branching
+
+Ví dụ:
+
+Scenario
+   │
+   ├── Normal → Full approval
+   │
+   ├── Discount → Short approval
+   │
+   ├── Promotion → Promotion workflow
+   │
+   └── Open → Direct execution
+44. Multiple Approvers
+
+Một step có thể có:
+
+1 approver
+
+hoặc:
+
+multiple approvers
+
+với policy:
+
+ALL
+ANY
+QUORUM
+45. Assignment
+
+Workflow không được hard-code username.
+
+Task có thể assign theo:
+
+User
+Role
+Department
+Manager
+Position
+Business Rule
+Expression
+
+Ví dụ:
+
+Step = Finance Approval
+
+Assignment:
+    Department = Finance
+    Role = Finance Manager
+46. Delegation
+
+Nếu approver nghỉ hoặc không xử lý được:
+
+Approver A
+     │
+     ▼
+Delegate
+     │
+     ▼
+Approver B
+
+Hệ thống phải lưu:
+
+delegator;
+delegate;
+start date;
+end date;
+scope;
+reason;
+audit.
+47. SLA
+
+Mỗi task có thể có:
+
+Start
+Due
+Completed
+Processing Duration
+
+Ví dụ:
+
+Finance Approval
+SLA = 2 business days
+48. Escalation
+
+Nếu quá SLA:
+
+Task overdue
+    ↓
+Notify owner
+    ↓
+Escalate manager
+    ↓
+Escalate director
+
+PAKD 2017 đã có khái niệm theo dõi số ngày xử lý.
+
+Web v2 cần nâng nó thành SLA capability.
+
+49. Timeout
+
+Workflow phải hỗ trợ:
+
+Task timeout
+
+và policy có thể là:
+
+notify;
+escalate;
+auto approve;
+auto reject;
+reassign;
+terminate.
+
+Các policy cụ thể cần business xác nhận.
+
+50. Return / Rework
+
+Approver phải có thể Return PAKD.
+
+Khi Return:
+
+Reason = required
+Comment = required
+
+PAKD chuyển:
+
+Approval
+ ↓
+Returned
+ ↓
+Rework
+51. Rework Routing
+
+Đây là phần cần thiết kế cẩn thận.
+
+Ví dụ:
+
+Finance Return
+      ↓
+Sales
+      ↓
+Finance Review Again
+
+Nhưng nếu Finance return sau khi Pricing đã approve:
+
+Sales
+  ↓
+Pricing
+  ↓
+Finance Return
+  ↓
+Sales
+  ↓
+Pricing Review Again
+  ↓
+Finance
+
+Tài liệu PAKD 2017 có yêu cầu phòng đã approve phải xem lại sau khi có chỉnh sửa.
+
+Đây là requirement quan trọng.
+
+52. Comment
+
+Reviewer phải có thể:
+
+comment;
+reply;
+mention;
+directed comment;
+attach document.
+
+PAKD 2017 có "TO" để chỉ đích danh người nhận ý kiến.
+
+53. Approval Decision
+
+Approver phải có:
+
+Approve
+Return
+
+Có thể bổ sung:
+
+Reject
+Delegate
+Request Information
+
+nhưng cần business xác nhận distinction giữa Return và Reject.
+
+54. Audit Trail
+
+Hệ thống phải lưu:
+
+Who
+What
+When
+Before
+After
+Reason
+IP/device nếu cần
+
+Ví dụ:
+
+2026-08-23 10:20
+User A
+Changed Purchase Price
+100 → 110
+Reason: Supplier increase
+55. Workflow History
+
+Phải lưu:
+
+Task created
+Task assigned
+Task claimed
+Comment added
+Approved
+Returned
+Reassigned
+Delegated
+SLA exceeded
+Workflow completed
+56. Business Data History
+
+Không được chỉ lưu workflow history.
+
+Phải lưu cả:
+
+Price History
+Supplier Change
+Product Change
+Commercial Term Change
+
+PAKD 2017 đã có chức năng xem lịch sử giá theo PAKD/toàn bộ PAKD.
+
+57. Notification
+
+Web v2 phải hỗ trợ notification channel abstraction:
+
+Notification
+├── In-app
+├── Email
+├── SMS
+└── External channel
+
+PAKD 2017 hiện có notification qua SMS cho nhiều tình huống xử lý.
+
+58. Notification Event
+
+Ví dụ:
+
+PAKD Submitted
+Task Assigned
+Task Returned
+Task Approved
+SLA Warning
+SLA Breached
+Workflow Completed
+Integration Failed
+59. Inbox / My Work
+
+Mỗi user phải có:
+
+My Tasks
+My PAKDs
+Pending Approval
+Returned
+Overdue
+Completed
+
+Ví dụ:
+
+My Work
+──────────────────────
+Pending       12
+Overdue        3
+Returned       4
+Completed     28
+60. Search
+
+Search PAKD theo:
+
+PAKD number;
+supplier;
+creator;
+scenario;
+status;
+department;
+date;
+product;
+region;
+approver.
+
+PAKD 2017 đã có các chức năng tìm kiếm/lọc và tổng hợp.
+
+61. Reporting
+
+Hệ thống phải hỗ trợ:
+
+Operational report
+Management report
+Audit report
+SLA report
+Workflow report
+Price report
+62. Excel Export
+
+User có quyền phải có thể export.
+
+Export phải:
+
+respect permission;
+respect tenant;
+respect filter;
+log audit;
+giới hạn dữ liệu nếu cần.
+
+PAKD 2017 đã có export Excel phục vụ tổng hợp và kiểm soát.
+
+63. Commercial Terms
+
+Hệ thống phải hỗ trợ Commercial Terms gắn với supplier/contract/PAKD.
+
+PAKD 2017 dùng chức năng này để lập điều khoản thương mại cho hợp đồng với nhà cung cấp và đính kèm với PAKD.
+
+64. Promotion
+
+PAKD phải hỗ trợ promotion scenario.
+
+Promotion cần:
+
+Campaign
+Start Date
+End Date
+Products
+Region
+Purchase Price
+Selling Price
+Promotion Value
+
+PAKD 2017 cho phép lựa chọn mã hàng từ Dsmart và thiết lập thời gian, giá trị khuyến mại, giá nhập/giá bán và địa điểm áp dụng.
+
+65. Supplier Payment
+
+Hệ thống phải hỗ trợ quy trình:
+
+Import operational data
+        ↓
+Calculate/prepare statement
+        ↓
+Business review
+        ↓
+Accounting reconciliation
+        ↓
+Payment
+
+PAKD 2017 sử dụng dữ liệu hàng nhập/hàng xuất trả từ Dsmart để hỗ trợ bảng kê thanh toán nhà cung cấp.
+
+66. Dsmart Integration
+
+Integration phải hỗ trợ:
+
+Inbound
+Dsmart
+ ↓
+PAKD
+
+Ví dụ:
+
+supplier;
+product;
+operational data;
+price data.
+Outbound
+PAKD
+ ↓
+Dsmart
+
+Ví dụ:
+
+retail price;
+approved business data.
+67. Integration Abstraction
+
+Không hard-code:
+
+PAKD → Dsmart API
+
+nên là:
+
+PAKD
+ ↓
+Integration Capability
+ ↓
+Connector
+ ↓
+Dsmart
+
+Sau này:
+
+PAKD
+ ↓
+Connector
+ ↓
+SAP
+
+hoặc:
+
+Procurement
+ ↓
+Connector
+ ↓
+ERP
+68. Integration Types
+
+Platform phải hỗ trợ:
+
+REST
+SOAP
+Database
+File
+
+theo integration capability mà bạn đã xác định.
+
+69. Integration Error Handling
+
+Nếu Dsmart không hoạt động:
+
+Sync
+ ↓
+Failed
+ ↓
+Retry
+ ↓
+Success
+
+Không được để user phải tạo lại PAKD.
+
+70. Integration Audit
+
+Mỗi integration request cần có:
+
+Integration ID
+Source
+Target
+Timestamp
+Request status
+Response status
+Error
+Retry count
+71. Business Rule Engine
+
+Đây là một trong những capability quan trọng nhất của Web v2.
+
+Business Admin phải có khả năng cấu hình rule.
+
+Ví dụ:
+
+IF
+    PAKD Scenario = "Increase Purchase Price"
+
+THEN
+    Require Finance Approval
+72. Decision Table
+
+Các rule phức tạp nên biểu diễn dạng bảng.
+
+Ví dụ:
+
+Scenario	Price Change	Amount	Workflow
+Normal	No	Any	Full
+Normal	Increase	< X	Standard
+Normal	Increase	≥ X	Executive
+Promotion	Yes	Any	Promotion
+
+Đây là cách tốt hơn hard-code if/else.
+
+73. Form Configuration
+
+Business Admin phải có khả năng cấu hình:
+
+Field
+Label
+Type
+Required
+Default
+Visible
+Editable
+Validation
+Help text
+
+Ví dụ:
+
+Purchase Price
+Type = Decimal
+Required = Yes
+Min = 0
+74. Conditional Form
+
+Ví dụ:
+
+Scenario = Promotion
+
+→ show:
+
+Promotion Start
+Promotion End
+Promotion Value
+
+Nếu:
+
+Scenario = Normal
+
+→ hide các field đó.
+
+75. Dynamic Workflow + Dynamic Form + Dynamic Rule
+
+Đây là trung tâm của platform vision.
+
+                  Business Admin
+                        │
+             ┌──────────┼──────────┐
+             ▼          ▼          ▼
+           Form        Rule      Workflow
+             │          │          │
+             └──────────┼──────────┘
+                        ▼
+                      PAKD
+76. Configuration Versioning
+
+Không được sửa trực tiếp workflow đang chạy.
+
+Ví dụ:
+
+PAKD Workflow
+    v1
+    v2
+    v3
+
+Một PAKD đã chạy v1 phải tiếp tục chạy v1.
+
+PAKD mới có thể chạy v3.
+
+77. Configuration Publishing
+
+Business Admin:
+
+Draft
+ ↓
+Validate
+ ↓
+Test
+ ↓
+Publish
+
+Không được:
+
+Edit production workflow
+→ immediately break running transaction
+78. Configuration Effective Date
+
+Có thể:
+
+Workflow v2
+Effective: 2026-09-01
+
+PAKD trước ngày đó:
+
+v1
+
+PAKD sau ngày đó:
+
+v2
+79. Business Admin
+
+Business Admin được phép:
+
+Configure Form
+Configure Workflow
+Configure Rule
+Configure Notification
+Configure Organization
+
+Developer không cần tham gia vào những thay đổi configuration thông thường.
+
+80. Developer Responsibility
+
+Developer chịu trách nhiệm:
+
+Platform Capability
+Integration Connector
+Complex Business Logic
+Security
+Performance
+Bug Fix
+New Domain Capability
+
+Đây chính là boundary bạn đã xác định:
+
+Business Admin configure, Developer build platform.
+
+81. Configuration vs Development
+
+Đây là nguyên tắc thiết kế business requirement:
+
+Configuration
+Add field
+Change label
+Change required
+Change approval route
+Change SLA
+Change notification
+Change threshold
+
+→ Business Admin.
+
+Development
+New calculation engine
+New external connector
+New complex data processing
+New platform capability
+
+→ Developer.
+
+82. Domain Extensibility
+
+Platform không được thiết kế chỉ quanh PAKD.
+
+Target domain:
+
+PAKD
+Inventory
+Procurement
+Sales
+
+Các application dùng chung:
+
+Identity
+Workflow
+Rule
+Form
+Document
+Notification
+Audit
+Integration
+83. Ví dụ Procurement
+
+Sau này:
+
+Purchase Request
+    ↓
+Manager
+    ↓
+Procurement
+    ↓
+Finance
+    ↓
+Director
+
+Không cần viết workflow engine mới.
+
+84. Ví dụ Inventory
+Stock Adjustment
+      ↓
+Warehouse Manager
+      ↓
+Finance
+      ↓
+Approved
+
+Cũng dùng platform workflow.
+
+85. Ví dụ Sales
+Discount Request
+      ↓
+Sales Manager
+      ↓
+Finance
+      ↓
+Director
+
+Lại dùng workflow engine.
+
+86. Functional Requirement Categories
+
+Tôi đề xuất toàn bộ system requirements được chia thành:
+
+FR-01 Identity
+FR-02 Organization
+FR-03 Authorization
+FR-04 Form
+FR-05 Business Object
+FR-06 Workflow
+FR-07 Rule
+FR-08 Task
+FR-09 Approval
+FR-10 Comment
+FR-11 Document
+FR-12 Notification
+FR-13 SLA
+FR-14 Audit
+FR-15 Reporting
+FR-16 Import/Export
+FR-17 Integration
+FR-18 Configuration
+FR-19 Tenant
+FR-20 PAKD
+87. Non-Functional Requirements
+
+Đây là phần không có đủ trong manual 2017, nên tôi coi đây là yêu cầu TO-BE dựa trên mục tiêu SaaS của bạn.
+
+NFR-001 — Web
+
+Hệ thống phải chạy qua browser hiện đại.
+
+Không yêu cầu desktop client.
+
+88. NFR-002 — Multi-tenancy
+
+Target:
+
+100 tenants
+1,000 users / tenant
+100,000 users
+
+theo mục tiêu bạn đã cung cấp.
+
+89. NFR-003 — Transaction Volume
+
+Target:
+
+500,000 transactions/day
+
+Đây là business sizing target, chưa phải measured performance requirement.
+
+Cần chuyển thành:
+
+Average TPS
+Peak TPS
+Peak concurrent users
+Peak workflow operations
+Peak integration requests
+
+trong SRS/Architecture phase.
+
+90. NFR-004 — Availability
+
+[OPEN]
+
+Business cần xác định:
+
+99.9%
+99.95%
+99.99%
+
+Mức nào là bắt buộc?
+
+91. NFR-005 — Security
+
+Tối thiểu:
+
+Tenant isolation
+Authentication
+Authorization
+Encryption in transit
+Encryption at rest
+Audit
+Secure document access
+Session management
+92. NFR-006 — Auditability
+
+Business-critical actions phải audit.
+
+Ví dụ:
+
+Create PAKD
+Change price
+Submit
+Approve
+Return
+Delete
+Export
+Change workflow
+Change rule
+93. NFR-007 — Data Retention
+
+[OPEN]
+
+Cần business xác định:
+
+PAKD giữ bao lâu?
+Audit giữ bao lâu?
+Documents giữ bao lâu?
+Deleted data có được physical delete không?
+94. NFR-008 — Backup
+
+Phải có backup và recovery.
+
+[OPEN]
+
+Cần xác định:
+
+RPO
+RTO
+Backup frequency
+Retention
+Disaster recovery
+95. NFR-009 — Performance
+
+Các thao tác phổ biến cần response time mục tiêu.
+
+Ví dụ đề xuất để thảo luận:
+
+Open normal page: < 2 sec
+Search: < 3 sec
+Submit: < 3 sec
+Approval: < 3 sec
+
+Đây mới chỉ là candidate requirement, chưa phải requirement đã được business chấp thuận.
+
+96. NFR-010 — Scalability
+
+Hệ thống phải có khả năng scale khi:
+
+Users ↑
+Tenants ↑
+Transactions ↑
+Documents ↑
+Workflow instances ↑
+Integration calls ↑
+97. NFR-011 — Maintainability
+
+Business goal:
+
+thay đổi business rule/workflow/form mà hạn chế code change.
+
+Đây là requirement quan trọng hơn việc chỉ "code clean".
+
+98. NFR-012 — Observability
+
+System phải cho phép theo dõi:
+
+Application
+Workflow
+Integration
+Database
+Queue
+Error
+Performance
+99. NFR-013 — Localization
+
+[OPEN]
+
+Có cần:
+
+Vietnamese;
+English;
+multi-language labels?
+
+Nếu sản phẩm SaaS hướng tới nhiều customer, tôi nghiêng về:
+
+nên hỗ trợ localization ngay từ platform design.
+
+100. NFR-014 — Timezone
+
+Mỗi tenant nên có timezone.
+
+Ví dụ:
+
+Tenant A → Asia/Ho_Chi_Minh
+Tenant B → Asia/Bangkok
+
+SLA và timestamp phải dựa trên timezone của tenant.
+
+101. NFR-015 — Business Calendar
+
+SLA không nên chỉ tính calendar days.
+
+Cần hỗ trợ:
+
+Working days
+Working hours
+Holiday
+Weekend
+Tenant calendar
+102. Security Boundary
+
+Mô hình security nên là:
+
+Tenant
+  ↓
+Organization
+  ↓
+Role
+  ↓
+Permission
+  ↓
+Data Scope
+
+Ví dụ Finance user chỉ xem PAKD thuộc:
+
+Tenant X
++
+assigned department scope
+103. Data Scope
+
+Permission không chỉ:
+
+Can READ
+
+mà cần:
+
+Can READ
+    WHERE
+        tenant = X
+        AND department = Finance
+
+Đây sẽ rất quan trọng khi có 100 tenants.
+
+104. Business Rules về Data Access
+
+Ví dụ:
+
+Sales Staff:
+    READ own PAKD
+
+Sales Manager:
+    READ department PAKD
+
+Director:
+    READ company PAKD
+
+Internal Control:
+    READ all PAKD
+
+Các scope này nên configurable.
+
+105. Reporting Security
+
+Export cũng phải chịu data scope.
+
+Không thể:
+
+User cannot see PAKD
+BUT
+User can export PAKD
+106. Document Security
+
+Tương tự.
+
+Nếu:
+
+PAKD access = denied
+
+thì:
+
+Attachment access = denied
+107. Business Exception Handling
+
+Hệ thống phải định nghĩa rõ:
+
+Integration unavailable
+
+→ Retry.
+
+Workflow assignment unavailable
+
+→ Escalation/admin queue.
+
+User inactive
+
+→ Reassignment/delegation policy.
+
+Approver leaves organization
+
+→ Reassign active task.
+
+Configuration changes
+
+→ Existing transaction giữ workflow version cũ.
+
+108. Business Continuity
+
+Nếu integration Dsmart down:
+
+PAKD approval
+       ↓
+Integration pending
+
+PAKD không nhất thiết phải mất.
+
+Trạng thái:
+
+Approved
+Integration Pending
+
+khác:
+
+Approval Failed
+109. State Model cần tách biệt
+
+Đây là một requirement tôi đặc biệt đề xuất.
+
+Một PAKD có thể đồng thời có:
+
+Business Status
+Workflow Status
+Integration Status
+
+Ví dụ:
+
+Business:
+Approved
+
+Workflow:
+Completed
+
+Integration:
+Pending
+
+Không nên dùng một status duy nhất cho tất cả.
+
+110. Configuration Governance
+
+Business Admin không được tự ý thay đổi production configuration mà không trace.
+
+Mỗi configuration change phải có:
+
+Who
+When
+What
+Old Version
+New Version
+Reason
+Approval
+111. Configuration Approval
+
+Tôi đề xuất:
+
+Business Admin creates config
+          ↓
+Validate
+          ↓
+Test
+          ↓
+Config Approver
+          ↓
+Publish
+
+[OPEN]
+Có cần approval cho configuration hay không phụ thuộc governance của customer.
+
+112. Workflow Designer
+
+Business Admin cần một UI để cấu hình:
+
+Start
+ ↓
+Task
+ ↓
+Task
+ ├── condition A → X
+ └── condition B → Y
+ ↓
+Join
+ ↓
+End
+
+Tuy nhiên không nhất thiết phải cho business user sử dụng BPMN notation ngay.
+
+MVP có thể dùng:
+
+simplified workflow designer.
+
+113. Workflow Node Types
+
+MVP nên có:
+
+Start
+User Task
+Approval Task
+Parallel Gateway
+Exclusive Gateway
+Notification
+Integration
+End
+
+Sau này:
+
+Timer
+Wait
+Sub-process
+Event
+Escalation
+114. Rule Types
+
+MVP:
+
+Field validation
+Visibility rule
+Required rule
+Assignment rule
+Routing rule
+Approval threshold
+
+Advanced:
+
+Decision table
+Expression
+External rule
+AI-assisted recommendation
+115. Form Builder
+
+MVP:
+
+Text
+Number
+Date
+Dropdown
+Radio
+Checkbox
+File
+Table
+Reference
+
+Advanced:
+
+Calculated field
+Conditional section
+Dynamic lookup
+Embedded sub-form
+116. PAKD Form Architecture
+
+Không nên:
+
+PAKD.java
+    200 fields
+
+Mà:
+
+PAKD
++
+Form Definition
++
+Form Data
+
+PAKD application xác định domain semantics.
+
+Platform cung cấp form runtime.
+
+117. Business Object vs Form
+
+Một điểm rất quan trọng:
+
+Form
+≠
+Business Object
+
+Ví dụ:
+
+PAKD Business Object
+
+có thể có:
+
+Create Form
+Edit Form
+Review Form
+Approval Form
+Read-only Form
+118. Approval Form
+
+Approver không nhất thiết được edit toàn bộ PAKD.
+
+Ví dụ:
+
+Sales:
+    edit all commercial fields
+
+Finance:
+    edit finance-related fields
+
+Director:
+    read-only
+    approve/return
+
+Đây là requirement từ business authorization.
+
+119. Field-level Permission
+
+Platform nên hỗ trợ:
+
+Field
+ ├── Visible
+ ├── Editable
+ └── Required
+
+theo:
+
+Role
+Task
+State
+Scenario
+120. Example
+Purchase Price
+
+Sales:
+    editable
+
+Finance:
+    editable
+
+Director:
+    read-only
+121. PAKD Search
+
+Search phải hỗ trợ:
+
+Exact
+Partial
+Range
+Date
+Multiple criteria
+
+Ví dụ:
+
+Supplier = ABC
+Status = Approved
+Date = Aug 2026
+Scenario = Promotion
+122. Dashboard
+
+Mỗi role có dashboard khác nhau.
+
+Sales
+My PAKDs
+Draft
+Returned
+Pending
+Approved
+Manager
+Pending approval
+Overdue
+Department volume
+Director
+Approval queue
+Value by category
+SLA
+Internal Control
+All PAKDs
+Audit
+Export
+History
+123. Notification Center
+
+Thay vì chỉ SMS như hệ thống cũ, Web v2 nên có:
+
+Notification Center
+
+Ví dụ:
+
+PAKD PA-2026-00123 cần bạn phê duyệt.
+
+Click:
+
+→ Open task
+124. Mobile / Responsive
+
+[OPEN]
+
+Business cần xác nhận:
+
+Desktop only?
+Responsive web?
+Mobile browser?
+Native mobile?
+
+Tôi khuyến nghị:
+
+responsive web trước, native mobile chưa cần MVP.
+
+125. Reporting Export
+
+Export lớn nên chạy background:
+
+User requests export
+       ↓
+Export Job
+       ↓
+Processing
+       ↓
+Completed
+       ↓
+Download
+
+Không nên giữ HTTP request hàng phút.
+
+126. Large Data Import
+
+Tương tự:
+
+Upload Excel
+      ↓
+Import Job
+      ↓
+Validation
+      ↓
+Result
+127. Integration Architecture Requirement
+
+Integration phải hỗ trợ asynchronous processing khi phù hợp.
+
+Ví dụ:
+
+PAKD
+ ↓
+Integration Job
+ ↓
+Queue
+ ↓
+Dsmart
+
+thay vì:
+
+Browser
+ ↓
+Dsmart
+128. Idempotency
+
+Một integration request không được tạo duplicate khi retry.
+
+Ví dụ:
+
+Sync Price
+Request ID = ABC123
+
+Retry:
+
+ABC123
+
+phải được nhận diện là cùng một business operation.
+
+129. Transaction Consistency
+
+Ví dụ:
+
+PAKD Approved
+
+nhưng Dsmart chưa nhận được.
+
+Không được rollback PAKD approval chỉ vì Dsmart timeout nếu business không yêu cầu transactional coupling.
+
+Thay vào đó:
+
+PAKD = Approved
+Integration = Failed
+
+và cho retry.
+
+130. Versioning
+
+Có ít nhất 4 loại version cần phân biệt:
+
+1. PAKD version
+2. Workflow version
+3. Form version
+4. Rule version
+131. PAKD Version
+
+Ví dụ:
+
+PA001-v1
+PA001-v2
+PA001-v3
+132. Workflow Version
+PAKD Workflow v1
+PAKD Workflow v2
+
+PAKD v1 đang chạy v1 không bị ảnh hưởng khi v2 publish.
+
+133. Form Version
+PAKD Form v1
+PAKD Form v2
+
+Data cũ vẫn phải đọc được.
+
+134. Rule Version
+Pricing Rule v1
+Pricing Rule v2
+
+Audit phải biết:
+
+PAKD này được đánh giá bằng rule version nào?
+
+135. Business Traceability
+
+Đây là requirement cực kỳ quan trọng.
+
+Khi CEO hỏi:
+
+"Tại sao PAKD này được route qua Finance?"
+
+System phải trả lời được:
+
+Scenario = Normal
+Price increase = 12%
+Rule = PRICE_APPROVAL_003
+Rule Version = 5
+Workflow = WF-PAKD-02
+Workflow Version = 7
+
+Đây là mức traceability mà PAKD 2017 khó thể hiện rõ.
+
+136. Decision Explainability
+
+Business rule engine phải lưu:
+
+Input
+Rule evaluated
+Condition matched
+Decision
+
+Ví dụ:
+
+Purchase Price Increase = 15%
+Threshold = 10%
+
+Rule matched:
+PRICE_INCREASE_OVER_THRESHOLD
+
+Decision:
+Require Finance + Director
+137. Business Audit Example
+
+Một audit record có thể là:
+
+PAKD: PA-2026-00123
+
+08:31 Sales created
+08:45 Sales submitted
+08:46 Workflow WF-12 started
+08:47 Finance task assigned
+10:20 Finance approved
+10:21 Pricing task assigned
+11:05 Pricing approved
+11:06 Director task assigned
+14:30 Director returned
+14:32 Sales notified
+15:10 Sales resubmitted
+...
+138. Đây là thứ tôi muốn Web v2 vượt xa PAKD 2017
+
+Không chỉ:
+
+"ai đã approve?"
+
+mà:
+
+"toàn bộ business process đã diễn ra như thế nào?"
+
+139. Requirements Traceability
+
+Mỗi requirement nên sau này map được:
+
+Business Requirement
+      ↓
+Use Case
+      ↓
+Functional Requirement
+      ↓
+UI
+      ↓
+API
+      ↓
+Database
+      ↓
+Test Case
+
+Ví dụ:
+
+BR-PA-003
+Scenario configurable
+       ↓
+UC-PA-Create
+       ↓
+FR-PA-Create-05
+       ↓
+Create PAKD UI
+       ↓
+POST /pakds
+       ↓
+PAKD tables
+       ↓
+TC-PA-001
+140. Core Use Cases
+
+Tôi xác định sơ bộ:
+
+UC	Use Case
+UC-001	Login
+UC-002	Create PAKD
+UC-003	Edit PAKD
+UC-004	Submit PAKD
+UC-005	Review PAKD
+UC-006	Comment
+UC-007	Approve PAKD
+UC-008	Return PAKD
+UC-009	Rework PAKD
+UC-010	View workflow
+UC-011	View history
+UC-012	Upload document
+UC-013	Import products
+UC-014	Create promotion
+UC-015	Manage commercial terms
+UC-016	Create supplier payment
+UC-017	Sync price
+UC-018	Search
+UC-019	Export
+UC-020	Configure workflow
+UC-021	Configure form
+UC-022	Configure rule
+UC-023	Manage users
+UC-024	Manage roles
+UC-025	Manage tenant
+141. Use Case Example — Create PAKD
+Actor
+
+Sales Staff.
+
+Preconditions
+User authenticated.
+User has PAKD.CREATE.
+Tenant active.
+Main Flow
+1. User opens Create PAKD
+2. Select Scenario
+3. Select Supplier
+4. Add products
+5. Enter pricing
+6. Enter cost
+7. Enter recommendation
+8. Upload documents
+9. Save
+Alternative
+Product lookup unavailable
+→ allow manual entry if configured
+Postcondition
+PAKD status = Draft
+142. Use Case — Submit PAKD
+Preconditions
+PAKD = Draft
+Required fields complete
+User has SUBMIT permission
+Main Flow
+Validate
+ ↓
+Determine scenario
+ ↓
+Evaluate rules
+ ↓
+Resolve workflow
+ ↓
+Create workflow instance
+ ↓
+Create tasks
+ ↓
+Notify users
+ ↓
+Status = Submitted/In Review
+143. Use Case — Approve
+Actor
+
+Approver.
+
+Preconditions
+Task assigned
+Task active
+User authorized
+Main Flow
+Open PAKD
+ ↓
+Review data
+ ↓
+Review comments
+ ↓
+Review documents
+ ↓
+Approve
+ ↓
+Complete task
+ ↓
+Evaluate workflow
+144. Use Case — Return
+Approver
+ ↓
+Return
+ ↓
+Enter reason
+ ↓
+Workflow determines rework target
+ ↓
+Notify requester
+145. Use Case — Rework
+
+Requester:
+
+Open returned PAKD
+ ↓
+View reason
+ ↓
+View comments
+ ↓
+Modify allowed fields
+ ↓
+Resubmit
+
+System must preserve previous version/history.
+
+146. Use Case — Workflow Configuration
+
+Business Admin:
+
+Create workflow
+ ↓
+Add steps
+ ↓
+Configure assignment
+ ↓
+Configure conditions
+ ↓
+Configure SLA
+ ↓
+Configure notifications
+ ↓
+Validate
+ ↓
+Publish
+147. Use Case — Form Configuration
+
+Business Admin:
+
+Create form
+ ↓
+Add sections
+ ↓
+Add fields
+ ↓
+Configure visibility
+ ↓
+Configure validation
+ ↓
+Configure role access
+ ↓
+Publish
+148. Use Case — Rule Configuration
+
+Business Admin:
+
+Create rule
+ ↓
+Define condition
+ ↓
+Define action
+ ↓
+Test
+ ↓
+Publish
+149. PAKD-specific Rules — Candidate
+
+Từ tài liệu 2017, chúng ta có thể suy ra candidate rules:
+
+Rule R-001
+
+PAKD phải có supplier.
+
+Rule R-002
+
+PAKD phải có ít nhất một product.
+
+Rule R-003
+
+Giá nhập phải hợp lệ.
+
+Rule R-004
+
+Giá bán phải hợp lệ.
+
+Rule R-005
+
+Scenario quyết định workflow.
+
+Rule R-006
+
+Một số scenario không cần Finance approval.
+
+Rule R-007
+
+Một số scenario chỉ cần TPKD approval.
+
+Rule R-008
+
+PAKD bình thường cần đầy đủ các cấp approval.
+
+Các rule routing này được mô tả trong tài liệu PAKD 2017.
+
+150. Rule về Rework
+
+Nếu reviewer return PAKD:
+
+Return reason required
+
+và các approver trước đó có thể phải review lại sau khi PAKD được sửa.
+
+Tài liệu 2017 thể hiện rõ requirement này.
+
+151. Business Rule — Comment
+
+Reviewer có thể comment nhưng không nhất thiết có quyền approve.
+
+Điều này phải được cấu hình theo role/task.
+
+152. Business Rule — Approval
+
+Approver chỉ có thể approve task đang active và được assign cho mình hoặc role của mình theo assignment policy.
+
+153. Business Rule — Data Lock
+
+Khi PAKD đang ở approval:
+
+Một số field có thể:
+
+Read-only
+
+Một số field:
+
+Editable
+
+phụ thuộc task.
+
+154. Business Rule — Concurrent Update
+
+Nếu hai người cùng mở PAKD:
+
+User A edits
+User B edits
+
+system phải tránh silent overwrite.
+
+Có thể sử dụng:
+
+optimistic concurrency
+
+nhưng đây là implementation decision, không phải business requirement.
+
+Business requirement là:
+
+Không được mất dữ liệu do concurrent update.
+
+155. Business Rule — Delete
+
+PAKD đã submit không được hard-delete.
+
+Có thể:
+
+Cancel
+Archive
+
+tùy business policy.
+
+156. Business Rule — Duplicate
+
+System nên cảnh báo nếu:
+
+Same Supplier
++
+Same Product
++
+Same Scenario
++
+Overlapping period
+
+có PAKD đang active.
+
+[OPEN]
+
+Business phải xác định duplicate definition.
+
+157. Business Rule — Price
+
+Cần xác định:
+
+Can selling price < purchase price?
+Can margin be negative?
+Can price be zero?
+Can effective date be past?
+
+Manual chưa đủ để trả lời.
+
+158. Business Rule — Promotion
+
+Promotion phải validate:
+
+Start < End
+Product exists
+Region exists
+Price valid
+159. Business Rule — Region
+
+Một product có thể có nhiều region price.
+
+System phải ngăn duplicate active price cho cùng:
+
+Product + Region + Effective Period
+
+nếu business không cho phép overlap.
+
+160. Business Rule — Integration
+
+Price chỉ được sync khi:
+
+PAKD approved
++
+required approval completed
++
+integration prerequisites valid
+161. Business Rule — Integration Retry
+
+Nếu sync fail:
+
+PAKD remains approved
+Integration = failed/pending
+
+và system cho phép retry theo policy.
+
+162. Business Rule — Notification
+
+Notification không được làm transaction business fail nếu notification provider down.
+
+Ví dụ:
+
+Approve PAKD
+   ↓
+Approval successful
+   ↓
+Email failed
+
+PAKD vẫn approved.
+
+163. Business Rule — SLA
+
+SLA timer phải bắt đầu khi task active.
+
+Không tính thời gian khi task đang:
+
+Waiting
+
+trừ khi business quy định khác.
+
+164. Business Rule — Delegation
+
+Nếu delegation active:
+
+Task → Delegate
+
+Nhưng audit phải vẫn thể hiện:
+
+Original Approver
+Delegate
+165. Business Rule — Tenant
+
+Mọi business transaction phải thuộc đúng một tenant.
+
+Không được có business data "trôi nổi" không thuộc tenant, trừ platform-level configuration.
+
+166. Platform-level vs Tenant-level Data
+Platform
+System capability
+Global feature
+Tenant
+Workflow
+Form
+Rule
+Users
+Business data
+Integration config
+167. Master Data
+
+Cần xác định 3 loại:
+
+Global Master
+Country
+Currency
+Timezone
+Tenant Master
+Department
+Supplier
+Region
+External Master
+Dsmart Product
+Dsmart Supplier
+168. Đây là một câu hỏi Business rất quan trọng
+
+Nếu Tenant A và Tenant B đều có:
+
+Supplier ABC
+
+có phải đây là:
+
+Supplier ABC của A
+Supplier ABC của B
+
+hay một global supplier?
+
+Tôi không khuyến nghị tự quyết định.
+
+Đây là một trong những câu hỏi cần chốt trước Data Model.
+
+169. Data Ownership
+
+Mỗi business object phải có owner.
+
+Ví dụ:
+
+PAKD → Sales
+Supplier → Procurement?
+Product → Master Data?
+Price → Sales/Pricing
+Payment → Finance
+170. Data Lifecycle
+
+Mỗi object cần:
+
+Create
+Read
+Update
+Submit
+Approve
+Archive
+Retention
+171. Business Data Classification
+
+Nên phân loại:
+
+Transactional Data
+Master Data
+Configuration Data
+Reference Data
+Audit Data
+Document Data
+Integration Data
+172. Documents
+
+Document metadata:
+
+Document ID
+File Name
+File Type
+Size
+Version
+Uploaded By
+Uploaded At
+Business Object
+Security Scope
+173. Audit
+
+Audit record:
+
+Audit ID
+Tenant
+Actor
+Action
+Object
+Object ID
+Timestamp
+Before
+After
+Reason
+174. Configuration Audit
+
+Đặc biệt phải audit:
+
+Workflow changes
+Rule changes
+Form changes
+Permission changes
+Role changes
+Integration changes
+175. Business Administration
+
+Tenant Admin phải có:
+
+User management
+Role management
+Organization
+Configuration
+Reference data
+Integration
+
+Business Admin có:
+
+Form
+Workflow
+Rule
+Notification
+
+Có thể là cùng một role hoặc tách riêng.
+
+[OPEN]
+
+176. Platform Admin
+
+Platform operator có quyền:
+
+Create tenant
+Suspend tenant
+Manage subscription
+Monitor system
+Manage platform configuration
+
+Không nhất thiết được đọc business data của tenant nếu security policy yêu cầu segregation.
+
+177. Tenant Lifecycle
+Provision
+ ↓
+Active
+ ↓
+Suspended
+ ↓
+Archived
+178. Tenant Onboarding
+
+Một tenant mới cần:
+
+Company
+Admin
+Organization
+Roles
+Workflow
+Forms
+Rules
+Integration
+
+Có thể có template:
+
+PAKD Standard Template
+
+sau đó customize.
+
+179. Đây là cách rất phù hợp với mục tiêu SaaS của bạn
+
+Thay vì mỗi customer:
+
+custom code
+custom deployment
+custom database schema
+
+có thể:
+
+Standard PAKD Template
+       ↓
+Tenant A customization
+Tenant B customization
+Tenant C customization
+180. Template
+
+Platform nên hỗ trợ:
+
+Application Template
+Workflow Template
+Form Template
+Rule Template
+
+Ví dụ:
+
+PAKD Standard
+
+→ clone thành tenant configuration.
+
+181. Business Configuration Package
+
+Một customer có thể có package:
+
+PAKD Configuration v12
+├── Forms
+├── Workflows
+├── Rules
+├── Notifications
+└── Reports
+
+Điều này sẽ giúp triển khai tenant mới nhanh.
+
+182. Domain Application Model
+
+Cuối cùng platform có thể trở thành:
+
+Platform
+│
+├── PAKD
+├── Procurement
+├── Inventory
+└── Sales
+
+Mỗi application có:
+
+Business Objects
+Business Processes
+Business Rules
+
+nhưng dùng chung:
+
+Identity
+Workflow
+Form
+Rule
+Document
+Notification
+Audit
+Integration
+183. Requirements Priority
+
+Tôi đề xuất MoSCoW.
+
+MUST
+Multi-tenant
+User/Role/Permission
+PAKD
+Workflow
+Sequential approval
+Parallel approval
+Conditional routing
+Approve
+Return
+Rework
+Comment
+Document
+Audit
+Notification
+Dsmart integration
+Form configuration
+Workflow configuration
+Rule configuration
+Search
+Reporting
+184. SHOULD
+Delegation
+Escalation
+SLA
+Timeout
+Excel import/export
+Configuration versioning
+Dashboard
+Business calendar
+Integration retry
+185. COULD
+Mobile responsive optimization
+Advanced analytics
+Visual workflow analytics
+Advanced decision tables
+Configuration marketplace
+AI assistance
+186. WON'T — Initial MVP
+Full ERP
+Full Procurement
+Full Inventory
+Full CRM
+Full Sales
+Native mobile
+AI autonomous approval
+187. MVP Boundary
+
+Nếu tôi phải chọn MVP để tránh project quá lớn:
+
+                PAKD MVP
+                   │
+       ┌───────────┼───────────┐
+       ▼           ▼           ▼
+     Form       Workflow      Rule
+       │           │           │
+       └───────────┼───────────┘
+                   ▼
+                PAKD
+                   │
+       ┌───────────┼───────────┐
+       ▼           ▼           ▼
+    Document     Comment     Audit
+                   │
+                   ▼
+               Dsmart
+188. MVP Workflow
+
+Tôi sẽ ưu tiên:
+
+Sequential
+Parallel
+Conditional Branch
+Approve
+Return
+Rework
+Multiple Approver
+SLA
+Notification
+
+Delegation/Escalation/Timeout có thể đưa ngay nếu team đủ năng lực, nhưng không nên để chúng làm chậm MVP nếu chưa có business urgency.
+
+189. Acceptance Criteria — Ví dụ
+AC-PA-001
+
+Given
+
+User có quyền CREATE.
+
+When
+
+User tạo PAKD với đầy đủ dữ liệu.
+
+Then
+
+System tạo PAKD ở trạng thái Draft.
+
+AC-PA-002
+
+Given
+
+PAKD đầy đủ dữ liệu.
+
+When
+
+User Submit.
+
+Then
+
+System:
+
+validate;
+determine workflow;
+create workflow instance;
+create first task;
+notify assignee.
+190. Acceptance Criteria — Approval
+
+Given
+
+User là approver của active task.
+
+When
+
+User Approve.
+
+Then
+
+System:
+
+ghi decision;
+ghi timestamp;
+complete task;
+evaluate next transition;
+activate next task(s);
+notify relevant users.
+191. Acceptance Criteria — Return
+
+Given
+
+Approver có quyền Return.
+
+When
+
+Approver Return.
+
+Then
+
+System:
+
+yêu cầu reason;
+lưu reason;
+chuyển task theo rework policy;
+notify requester;
+giữ nguyên history.
+192. Acceptance Criteria — Parallel
+
+Given
+
+Workflow có 2 approval branches.
+
+When
+
+Branch A approve nhưng B chưa approve.
+
+Then
+
+workflow không được chuyển sang next step nếu join policy = ALL.
+
+193. Acceptance Criteria — Tenant
+
+Given
+
+User Tenant A.
+
+When
+
+User search PAKD.
+
+Then
+
+chỉ PAKD thuộc Tenant A và data scope được phép xuất hiện.
+
+194. Acceptance Criteria — Configuration
+
+Given
+
+Business Admin tạo Workflow v2.
+
+When
+
+Publish.
+
+Then
+
+PAKD mới dùng v2.
+
+PAKD đang chạy v1 tiếp tục sử dụng v1.
+
+195. Acceptance Criteria — Audit
+
+Given
+
+User thay đổi Purchase Price.
+
+Then
+
+System phải lưu:
+
+old value
+new value
+user
+timestamp
+reason
+PAKD
+196. Acceptance Criteria — Integration
+
+Given
+
+PAKD approved.
+
+When
+
+Dsmart unavailable.
+
+Then
+
+PAKD vẫn giữ trạng thái approved và integration được đánh dấu failed/pending theo policy; không tạo duplicate khi retry.
+
+197. Major Business Risks
+Risk 1 — Generic platform quá sớm
+
+Nếu cố build mọi thứ:
+
+BPMN
+Rule Engine
+Form Engine
+Integration Engine
+Report Engine
+
+trước khi PAKD chạy được, project rất dễ thất bại.
+
+198. Risk 2 — Hard-code PAKD
+
+Ngược lại:
+
+if scenario == X
+if scenario == Y
+if scenario == Z
+
+sẽ khiến platform không thể mở rộng.
+
+Giải pháp:
+
+Build reusable capability nhưng validate capability bằng PAKD thực tế.
+
+199. Risk 3 — Không tách Scenario và Status
+
+Đây là một trong những lỗi thiết kế tôi muốn tránh ngay từ đầu.
+
+Scenario
+≠
+Status
+≠
+Task State
+≠
+Integration State
+200. Risk 4 — Workflow quá đơn giản
+
+Nếu chỉ hỗ trợ:
+
+A → B → C
+
+thì không đủ cho PAKD.
+
+Cần:
+
+Sequential
+Parallel
+Conditional
+Rework
+Join
+Delegation
+SLA
+201. Risk 5 — Workflow quá generic
+
+Nếu xây một BPMN engine đầy đủ ngay từ đầu, business admin sẽ khó sử dụng.
+
+Mục tiêu phải là:
+
+Business-friendly workflow configuration.
+
+Không phải:
+
+"thu nhỏ Camunda/BPMN rồi đưa cho business user."
+
+202. Risk 6 — Không version configuration
+
+Đây là risk production cực lớn.
+
+Nếu sửa workflow đang chạy:
+
+Old PAKD
+    ↓
+suddenly new workflow
+
+có thể gây sai business.
+
+Do đó versioning là MUST.
+
+203. Risk 7 — Integration coupling
+
+Không được để:
+
+PAKD transaction
+     =
+Dsmart transaction
+
+nếu hai system không có distributed transaction guarantee.
+
+204. Risk 8 — Tenant leakage
+
+Đây là security risk nghiêm trọng nhất của SaaS.
+
+Phải thiết kế tenant isolation ngay từ đầu, không phải thêm sau.
+
+205. Risk 9 — Business rule không trace được
+
+Nếu rule engine chỉ trả:
+
+workflow = X
+
+mà không biết:
+
+tại sao?
+
+thì sau này business sẽ rất khó debug.
+
+206. Risk 10 — Chuyển nguyên UI desktop lên web
+
+Đây là cách tôi không khuyến nghị.
+
+Không nên:
+
+Desktop UI
+      ↓
+copy to web
+
+Nên:
+
+Business Process
+      ↓
+Business Requirement
+      ↓
+New UX
+207. Gap Analysis — PAKD 2017 → Web v2
+PAKD 2017	Web v2
+Desktop	Browser
+Single/limited deployment	SaaS
+Hard-coded workflow	Configurable
+Hard-coded form	Configurable
+Hard-coded rule	Configurable
+SMS-centric	Notification platform
+Paper approval	Digital workflow where legally permitted
+Manual update software	Central deployment
+Limited history	Full audit trail
+Fixed roles	Configurable RBAC
+Dsmart-specific	Connector abstraction
+Excel import	Import engine
+24 PA types	Configurable scenarios
+Color status	Workflow visualization
+Local client	Client-server
+One domain	Multi-domain platform
+208. Một insight rất quan trọng: "PAKD Web v2" thực ra có 2 sản phẩm
+
+Khi nhìn toàn bộ requirement, tôi thấy chúng ta đang xây:
+
+Product A — Platform
+Identity
+Tenant
+Workflow
+Form
+Rule
+Task
+Document
+Notification
+Audit
+Integration
+Reporting
+Product B — PAKD
+PAKD
+Supplier
+Product
+Pricing
+Promotion
+Commercial Terms
+Payment
+Price Sync
+209. Boundary chính thức tôi đề xuất
+┌───────────────────────────────────────────────┐
+│                 SaaS Platform                 │
+│                                               │
+│ Tenant / Identity / RBAC                      │
+│ Workflow / Task / Approval                    │
+│ Rule / Decision                               │
+│ Form / Document                               │
+│ Notification / SLA                            │
+│ Audit / Reporting                             │
+│ Integration                                   │
+│                                               │
+│ ┌───────────────────────────────────────────┐ │
+│ │              PAKD Application             │ │
+│ │                                           │ │
+│ │ PAKD / Supplier / Product / Pricing       │ │
+│ │ Promotion / Contract / Payment            │ │
+│ │ Price Synchronization                     │ │
+│ └───────────────────────────────────────────┘ │
+└───────────────────────────────────────────────┘
+210. Product Direction
+
+Với những gì bạn đã cung cấp, tôi sẽ không định nghĩa sản phẩm là "PAKD Web" trong dài hạn.
+
+Tôi sẽ định nghĩa:
+
+Business Process & Workflow Platform
+
+và:
+
+PAKD là application đầu tiên chạy trên platform.
+
+Điều này phù hợp với mục tiêu của bạn về:
+
+nhiều customer;
+nhiều tenant;
+nhiều business domain;
+business tự configure;
+developer xây platform;
+nhanh thích ứng với customer.
+211. Tuy nhiên BRS này chưa nên được coi là "Final"
+
+Đây là điểm rất quan trọng.
+
+Tài liệu PAKD 2017 là User Manual, không phải Business Requirement Document.
+
+Vì vậy một số vấn đề không thể suy ra chính xác.
+
+Tôi đã cố tình đánh dấu chúng là [OPEN] thay vì tự bịa requirement.
+
+212. Các câu hỏi Business cần chốt — Nhóm 1: PAKD
+Q1
+
+PAKD có những trạng thái chính xác nào?
+
+Q2
+
+"Return" và "Reject" có khác nhau không?
+
+Q3
+
+PAKD có được Cancel sau khi Submit không?
+
+Q4
+
+PAKD supplement có phải một transaction mới hoàn toàn hay là revision?
+
+Q5
+
+Khi sửa PAKD sau Return, những field nào được sửa?
+
+213. Nhóm 2 — Approval
+Q6
+
+TĐG và TCKT là:
+
+ALL required?
+ANY?
+Parallel?
+Q7
+
+Nếu TĐG approve, TCKT reject → TĐG có phải approve lại?
+
+Manual cho thấy có yêu cầu xem lại sau khi chỉnh sửa, nhưng cần business xác nhận chính sách đầy đủ.
+
+Q8
+
+Có được delegate approval không?
+
+Q9
+
+Có escalation không?
+
+Q10
+
+Có SLA khác nhau theo scenario không?
+
+214. Nhóm 3 — Pricing
+Q11
+
+Margin được tính thế nào?
+
+Q12
+
+Có những loại cost nào?
+
+Q13
+
+Price có thể negative/zero không?
+
+Q14
+
+Effective date có thể backdate không?
+
+Q15
+
+Hai price cùng Product + Region có được overlap không?
+
+215. Nhóm 4 — Supplier/Product
+Q16
+
+Supplier là master data của PAKD hay platform?
+
+Q17
+
+Product là master data của Dsmart hay platform?
+
+Q18
+
+Tenant có thể tự tạo supplier/product không?
+
+Q19
+
+Nếu Dsmart unavailable thì có được manual entry không?
+
+216. Nhóm 5 — Multi-tenancy
+Q20
+
+Mỗi tenant có database riêng hay logical isolation?
+
+Đây là architecture question, chưa cần quyết định trong BRS.
+
+Q21
+
+Tenant có được tự customize workflow không?
+
+Từ câu trả lời của bạn:
+
+Có.
+
+Q22
+
+Tenant có được tự customize form không?
+
+Có.
+
+Q23
+
+Tenant có được tự customize rule không?
+
+Có.
+
+217. Nhóm 6 — Configuration Governance
+Q24
+
+Business Admin có được publish trực tiếp production không?
+
+Q25
+
+Có cần approval cho workflow configuration?
+
+Q26
+
+Có cần UAT environment riêng cho tenant?
+
+Q27
+
+Có cần rollback configuration?
+
+Tôi đề xuất Có cho Q27.
+
+218. Nhóm 7 — Integration
+Q28
+
+Dsmart API nào là authoritative source cho:
+
+Supplier?
+Product?
+Price?
+Inventory?
+Sales?
+Q29
+
+Dsmart integration synchronous hay asynchronous?
+
+Q30
+
+Nếu Dsmart fail thì business process có được tiếp tục?
+
+219. Nhóm 8 — SaaS
+Q31
+
+Có cần self-service tenant onboarding?
+
+Q32
+
+Có subscription/billing không?
+
+Q33
+
+Tenant có giới hạn:
+
+users
+storage
+transactions
+
+không?
+
+Q34
+
+Có cần custom domain cho tenant?
+
+220. Nhóm 9 — Security
+Q35
+
+Có SSO không?
+
+Ví dụ:
+
+Azure AD
+LDAP
+SAML
+OIDC
+Q36
+
+Có MFA không?
+
+Q37
+
+Có cần IP restriction?
+
+Q38
+
+Có yêu cầu audit compliance cụ thể không?
+
+221. Nhóm 10 — Deployment
+
+Bạn đã xác định:
+
+Cloud SaaS
+
+Nhưng vẫn cần xác định:
+
+Public SaaS
+Private cloud
+Dedicated tenant
+Hybrid
+222. Tôi đề xuất cách chúng ta tiếp tục
+
+Không nên ngay lập tức chuyển BRS này thành database.
+
+Thứ tự tốt hơn là:
+
+                   PAKD 2017
+                       │
+                       ▼
+              ┌─────────────────┐
+              │      BRS        │
+              │   (document)    │
+              └────────┬────────┘
+                       │
+             ┌─────────┴─────────┐
+             ▼                   ▼
+      Business Process       Business Rules
+             │                   │
+             ▼                   ▼
+           Use Case           Decision
+             │                   │
+             └─────────┬─────────┘
+                       ▼
+                Domain Model
+                       │
+                       ▼
+              Platform Boundary
+                       │
+                       ▼
+              System Architecture
+223. Deliverable tiếp theo tôi khuyên làm
+
+Từ BRS này, bước tiếp theo nên là Business Process Specification.
+
+Tôi sẽ lấy 10 quy trình thực tế của PAKD và đặc tả từng quy trình theo format:
+
+Process ID
+Process Name
+Business Objective
+Trigger
+Actors
+Preconditions
+Input
+Main Flow
+Alternative Flow
+Exception Flow
+Business Rules
+Decision Points
+Output
+Postconditions
+SLA
+Notification
+Audit
+Integration
+Permissions
+
+Sau đó chúng ta sẽ dựng:
+
+Process 01
+
+Create & Submit PAKD
+
+Process 02
+
+Normal PAKD Approval
+
+Process 03
+
+Discount PAKD Approval
+
+Process 04
+
+Promotion/CTKM
+
+Process 05
+
+PA Open
+
+Process 06
+
+Return & Rework
+
+Process 07
+
+Commercial Terms
+
+Process 08
+
+Supplier Payment
+
+Process 09
+
+Retail Price Synchronization
+
+Process 10
+
+Audit / Reporting
+
+Đây sẽ là bước cực kỳ quan trọng, bởi BRS nói hệ thống phải làm gì, còn Business Process Specification sẽ nói chính xác nghiệp vụ diễn ra như thế nào. Sau hai tài liệu này, chúng ta mới có cơ sở chắc chắn để thiết kế Domain Model + Workflow Model + Platform Capability Model, rồi mới đi đến architecture.
+
+Và với mục tiêu của bạn, tôi khuyên chúng ta không dừng ở việc document hóa PAKD. Tôi sẽ đồng thời đánh dấu trên từng process:
+
+"Phần nào là PAKD-specific" vs "Phần nào nên extract thành Platform Capability".
+
+Đó chính là bước biến PAKD 2017 thành một application đầu tiên để kiểm chứng Business Process / Workflow Platform, thay vì chỉ đơn giản là viết lại PAKD bằng công nghệ web.

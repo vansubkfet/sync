@@ -1,0 +1,1347 @@
+﻿Hương da	n sư dung pha	n me	m Phương A	n Kinh Doanh
+(Quy trınh mơi)
+
+
+MỤC LỤC
+
+I.	Quy định sử dụng phần mềm Phương án kinh doanh..................................................... 3
+
+1.	Phạm vi và đối tượng áp dụng............................................................................................. 3
+
+2.	Quản lý và sử dụng phần mềm PAKD................................................................................. 3
+
+II.   Các chức năng chính của phần mềm PAKD....................................................................3
+
+1.	Tạo phương án kinh doanh.................................................................................................. 3
+
+2.	Quản lý thông tin thanh toán cho nhà cung cấp ................................................................... 4
+
+3.	Xử lý phương án kinh doanh............................................................................................... 4
+
+4.	Cập nhật giá bán lẻ tại các siêu thị ...................................................................................... 4
+
+5.	Hệ thống............................................................................................................................. 4
+
+III. Đối tượng và phân quyền sử dụng phần mềm..................................................................5
+
+1.	Nhân viên phòng Kinh doanh.............................................................................................. 5
+
+2.	Trưởng phòng Kinh doanh.................................................................................................. 5
+
+3.	Nhân viên phòng QTRR&Thẩm định giá  và Phòng Tài chính Kế toán............................... 5
+
+4.	Trưởng phòng QTRR&Thẩm định giá và Phòng Tài chính Kế toán .................................... 6
+
+5.	Giám đốc Kinh doanh – Ban Tổng Giám đốc...................................................................... 6
+
+6.	Văn phòng công ty.............................................................................................................. 6
+
+7.	Phòng Kinh tế tổng hợp ...................................................................................................... 6
+
+8.	Bộ phận Kiểm soát nội bộ................................................................................................... 6
+
+IV. Quy trình sử dụng phần mềm PAKD...............................................................................6
+
+1.	Định nghĩa các loại phương án............................................................................................ 6
+
+1.1	Phương án kinh doanh thường:................................................................................... 6
+
+1.2	Phương án kinh doanh mở:......................................................................................... 6
+
+2.	Quy trình phê duyệt phương án........................................................................................... 7
+
+3.	Hướng dẫn chung................................................................................................................ 7
+
+4.	Hướng dẫn nhân viên kinh doanh...................................................................................... 10
+
+4.1	Lập phương án kinh doanh ....................................................................................... 10
+
+4.2	Lập Điều khoản thương mại ..................................................................................... 17
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 1/27
+4.3	Theo dõi thanh toán với nhà cung cấp....................................................................... 20 5.	Hướng dẫn nhân viên QTRR&TĐG, nhân viên Tài chính Kế toán.................................... 21 6.	Hướng dẫn cho các Trưởng phòng – Giám đốc Kinh doanh - Ban Tổng Giám đốc............ 22 7.	Hướng dẫn cho nhân viên Văn phòng ............................................................................... 23 8.	Hướng dẫn cho nhân viên phòng Kinh tế tổng hợp............................................................ 24 9.	Hướng dẫn cho bộ phận Kiểm soát nội bộ......................................................................... 25
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Tháng 04 năm 2017
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 2/27
+I.	Quy định sử dụng phần mềm Phương án kinh doanh 1.   Phạm vi và đối tượng áp dụng
+  Phạm vi: Quy định về việc quản lý - vận hành - sử dụng - khai thác phần mềm Phương án kinh doanh, điều khoản hợp đồng tại Công ty Cổ Phần Intimex Việt Nam.
+  Đối tượng áp dụng: Người sử dụng tại các phòng/ban của Công ty trong việc quản lý, vận hành, khai thác, sử dụng phần mềm Phương án kinh doanh, điều khoản hợp đồng của Công ty Cổ phần Intimex Việt Nam
+2.   Quản lý và sử dụng phần mềm PAKD
+  Hệ thống phần mềm Phương án kinh doanh được cài đặt tại các phòng Kinh doanh, Thẩm định giá, TCKT, Văn phòng, KTTH, KSNB và Ban Tổng Giám đốc.
+  Dữ liệu hàng ngày được cán bộ tại các phòng Kinh doanh, Thẩm định giá, TCKT, Ban Tổng Giám đốc cập nhật, cán bộ Văn phòng in dữ liệu phương án thông qua phần mềm. Dữ liệu phần mềm được cài đặt tại máy chủ tại trụ sở chính 96 Trần Hưng Đạo, dữ liệu các file đính kèm được lưu trữ tại máy phụ tại trung tâm 96 Trần Hưng Đạo. Dữ liệu PAKD được backup tự động hàng ngày lúc 23h ra ổ cứng ngoài.
+  Phần mềm thực hiện phân quyền theo từng người, từng vai trò cụ thể tại các phòng ban.
+
+II.	Các chức năng chính của phần mềm PAKD
+
+1.   Tạo phương án kinh doanh
+
+Có các chức năng phục vụ chính cho việc lập phương án kinh doanh gốc theo từng trạng thái phương án cụ thể, Bổ sung phương án (Các lần bổ sung phương án theo thứ tự tăng dần từ 1..n), Tìm phương án theo người lập, Thêm HĐ với nhà cung cấp, Tìm các hợp đồng sẽ hết hạn trong tháng . Các trạng thái phương án hiện có trong phần mềm như sau:
+1.   Hàng mới, NCC mới
+
+2.   Hàng mới, NCC hiện thời
+3.   Hàng đang KD, giảm giá nhập* 4.   Hàng đang KD, tăng giá nhập
+5.   NCC hiện thời, bổ sung hàng mới
+
+6.   NCC hiện thời, bổ sung ngành, hàng mới
+
+7.   NCC hiện thời, thay đổi code, quy cách, mẫu mã 8.   NCC hiện thời, bổ sung hàng mới, ký PLHĐ
+9.   Hàng đang KD, đổi NCC, không thay đổi giá, ký tiếp HĐ/PLHĐ
+
+10. Hàng đang KD, đổi NCC, thay đổi giá, bổ sung hàng mới, ký tiếp HĐ/PLHĐ 11. Hàng đang KD, đổi NCC, bổ sung hàng mới, ký tiếp HĐ/PLHĐ
+12. Hàng đang KD, ký tiếp HĐ/PLHĐ
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 3/27
+13. Hàng đang KD, thay đổi giá, ký tiếp HĐ/PLHĐ
+
+14. Hàng đang KD, bổ sung hàng mới, ký tiếp HĐ/PLHĐ
+
+15. Hàng đang KD, thay đổi giá,bổ sung hàng mới, ký tiếp HĐ/PLHĐ 16. Hàng đang KD, bổ sung hàng mới, ký PLHĐ
+17. Hàng đang KD, đổi NCC, thay đổi giá, ký tiếp HĐ/PLHĐ 18. Hàng đang KD, đổi NCC, thay đổi giá, bổ sung hàng mới 19. Hàng đang KD, tăng, giảm giá nhập
+20. Hàng đang KD, thay đổi trọng lượng 21. Hàng đang KD, giảm giá theo CTKM*
+22. Hàng đang KD, ký tiếp HĐ/PLHĐ, không thay đổi hiệu quả KD 23. Hàng đang KD, thay đổi giá, tăng trọng lượng
+24.  Hàng đang KD, thay đổi giá
+
+2.   Quản lý thông tin thanh toán cho nhà cung cấp
+
+Theo dõi công nợ thanh toán cho mỗi nhà cung cấp dựa trên lượng hàng nhập vào và lượng hàng xuất trả trên phần mềm Dsmart
+Nhân viên phòng Kinh doanh lập bảng kê thanh toán cho các nhà cung cấp trên PAKD và chuyển cho phòng kế toán đối chiếu thanh toán cho nhà cung cấp
+3.   Xử lý phương án kinh doanh
+
+Có các chức năng phục vụ cho việc tìm, xử lý phương án thông qua việc tìm theo Số PAKD, chọn nhanh theo người lập phương án hoặc ngành hàng, theo ngày, có thể tách riêng các phương án đã duyệt
+Tách riêng các loại phương án theo từng đối tượng xử lý. Theo dõi được số ngày xử lý phương án của mỗi đối tượng xử lý để nắm bắt tiến độ. Có phần ghi chú cho các phòng ban xem lại các phương án mình đã duyệt trong trường hợp phương án bị làm lại do phòng ban khác không duyệt.
+4.   Cập nhật giá bán lẻ tại các siêu thị
+
+Các chức năng chính liên quan đến việc cập nhật giá mới cho một hoặc nhiều siêu thị. Từ trung tâm dựa trên kết quả các phương án kinh doanh đã được Ban Tổng Giám đốc phê duyệt bộ phận kiểm soát sau như QTRR & Thẩm định giá, TCKT có thể kiểm tra và so sánh giá bán lẻ tại các siêu thị. Phòng Kinh tế tổng hợp cập nhật giá bán lẻ lên dữ liệu trung tâm hoặc xuống các Siêu thị theo các phương án đã được duyệt.
+5.   Hệ thống
+
+Các chức năng chính liên quan đến quản trị hệ thống phần mềm QLKD như Quản lý nhóm người dùng, Quản lý người sử dụng, Nhật ký hệ thống,...
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 4/27
+6.   Nhận tin nhắn qua điện thoại di động các PA chưa được xử lý
+
+Để hỗ trợ nhanh cho việc xử lý PAKD, nhân viên có thể đăng ký với ban Quản trị để nhận tin nhắn về điện thoại di động:
+* Đối với cán bộ lập PAKD: tự động nhắn tin các phương án do TP trả về * Đối với TP. KD:
++ Nhắn tin danh sách các PA đã lập, đợi xử lý.
++ Nhắn tin danh sách các PA bị trả về bởi Thẩm định giá, Kế toán, GĐKD, Tổng GĐ * Đối với TP.Kế toán, TP.Thẩm định giá
++ Danh sách các PA đợi xử lý
++ Danh sách các PA cần xem xét lại (có trong phần Note)
+* Đối với GĐKD: danh sách các PA đợi xử lý (đã được duyệt OK bởi Kế toán trưởng và TP Thẩm định)
+* Đốivới Văn phòng : danh sách các PA đã được GĐKD đồng ý, đợi TGĐ phê duyệt
+
+Cú pháp nhắn tin đăng ký:
+
+1:username  (hoặc 1:username-ma_ngành_hàng: dành cho nhân viên KT và TĐG). VD: 1: viet.ht-000007
+
+2:username  (hoặc 2:username-ma_ngành_hàng: dành cho nhân viên KT và TĐG) . VD: 2: chi.ntt-000002
+Ghi chú: Các trưởng phòng và các nhân viên không phân định ngành hàng mình quản lý thì sẽ bỏ trống phần mã ngành hàng. VD: 1: mai.ptt
+
+Trong đó:
+username: tên truy cập phần mềm PAKD gói số 1: mỗi PA chỉ nhắn 01 lần duy nhất
+gói số 2: các phương án chưa xử lý hết sẽ được nhắc lại vào mỗi ngày tiếp theo
+
+III.	Đối tượng và phân quyền sử dụng phần mềm 1.   Nhân viên phòng Kinh doanh
+-   Lập và bổ sung phương án kinh doanh, quản lý hợp đồng NCC. -   Thêm NCC, hàng hóa mới.
+-   Chỉnh sửa hàng hóa mới.
+
+-   Đưa tài liệu vào phương án kinh doanh.
+
+-   Được có ý kiến cho phương án của cán bộ kinh doanh phụ trách. -   Được quyền chỉnh sửa dữ liệu NCC cũ
+2.   Trưởng phòng Kinh doanh
+
+-   Nhận và xử lý phương án kinh doanh
+
+-   Trả lại hoặc chuyển tiếp phương án kinh doanh
+
+3.   Nhân viên phòng QTRR&Thẩm định giá  và Phòng Tài chính Kế toán
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 5/27
+-   Được xem phương án kinh doanh
+
+-   Được xem tài liệu liên quan đến phương án kinh doanh
+
+-   Được có ý kiến cho phương án kinh doanh để hỗ trợ trưởng phòng ra quyết định. 4.   Trưởng phòng QTRR&Thẩm định giá và Phòng Tài chính Kế toán
+-   Nhận và xử lý phương án kinh doanh
+
+-   Được có ý kiến cho phương án kinh doanh
+
+-   Trả lại hoặc chuyển tiếp phương án kinh doanh (Đối với các phương án bình thường) 5.   Giám đốc Kinh doanh – Ban Tổng Giám đốc
+-   Nhận /cho ý kiến và xử lý phương án kinh doanh.
+
+-   Trả lại hoặc chuyển tiếp phương án kinh doanh (Đối với các phương án bình thường) -   Kiểm tra phương án kinh doanh (đối với các phương án là phương án mở)
+6.   Văn phòng công ty
+
+-   Được in phương án kinh doanh
+
+-   Được in tài liệu liên quan đến phương án kinh doanh -   Cập nhật ý kiến theo bút phê của Ban TGĐ
+7.   Phòng Kinh tế tổng hợp
+
+-   Được xem phương án kinh doanh
+
+-   Đồng bộ dữ liệu điều chỉnh giá bán lẻ tại Trung tâm và các siêu thị theo phương án được phê duyệt.
+8.   Phòng Kiểm soát nội bộ
+
+-   Được xem tất cả các phương án và các file đính kèm phương án sau khi TPKD phê duyệt -   Không được phép cho ý kiến vào phương án
+-   Có thể xuất dữ liệu các phương án ra file excel để kiểm tra số liệu
+
+IV.	Quy trình sử dụng phần mềm PAKD
+
+1.   Định nghĩa các loại phương án 1.1 Phương án kinh doanh thường:
+   Phương án bình thường: các các dạng phương án được nêu tại điều II.1, trừ dạng số 3 và 21. Phương án này phải qua đầy đủ các bước phê duyệt từ TPKD cho đến ban TGĐ
+   Phương án giảm giá nhập: Trạng thái phương án số 3 tại điều II. Phương án này sau khi TPKD phê duyệt sẽ chuyển thẳng lên GĐ kinh doanh duyệt mà không cần thông qua phòng TCKT+TĐG.
+   Phương án giảm giá theo CTKM: Trạng thái phương án số 21 tại điều II.1. Phương án này chỉ cần TPKD phê duyệt.
+1.2 Phương án kinh doanh mở:
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 6/27
+Là tất cả các phương án giảm giá nhập hoặc giá bán do NCC chịu 100% chi phí. Khi tích chọn là phương án mở phương án chỉ cần TPKD phê duyệt chuyển phòng KTTH nhập vào Dsmart (GĐ kinh doanh và ban TGĐ chỉ cần xem, không cần phê duyệt). TP kinh doanh chịu trách nhiệm giải trình với phòng TCKT và TĐG khi có yêu cầu.
+2.   Quy trình phê duyệt phương án
+
+(Lưu ý xem phương án trước, sau đó xem các phương án được trả lại )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+3.   Hướng dẫn chung
+
+Kích hoạt chương trình: Sau khi được kích hoạt, biểu tượng của phần mềm sẽ nằm tại thanh công cụ  phía dưới bên phải cuả màn hình máy vi tính.
+
+1.Chạy phần mềm PAKD
+*Lưu ý: Lần chạy PA mới này không chia 2 biểu tượng phiên bản cũ mới trên màn hình desktop. Chỉ cần update phiên bản mới, sẽ sử dụng cho cả 2 quy trình
+
+
+
+Chuột phải vào biểu tượng phần mềm cuối màn hình và đăng nhập theo User và Password đã
+
+được cấp phát OK
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 7/27
+
+
+
+
+
+
+
+
+
+Cập nhật phiên bản mới của chương trình: Sau khi Đăng nhập chọn “About” nếu có phiên bản mới chưa được cập nhật sẽ xuất hiện dòng “Download new version” Click chuột vào dòng đó Yes phần mềm PAKD sẽ cập nhật phiên bản mới và yêu cầu người dùng đăng nhập lại.
+Trường hợp máy tính đã được cập nhật phiên bản mới nhất khi click chuột vào “About” sẽ không xuất hiện dòng “Download new version”
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Các chức năng thể hiện khi đăng nhập và chuột phải vào biểu tượng phần mềm:
+
+
+Chọn “About” để cập nhật phiên bản mới của phần mềm
+
+
+** Tùy các account sẽ có thêm các chức năng khác nhau 1. Click chọn Tổng hợp xử lý PAKD nếu muốn chạy PA theo quy trình cũ
+2. Click chọn Xử lý theo quy trình mới với các PA theo quy trình mới
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 8/27
+Các chức năng trên giao diện chính:
+
+
+
+
+
+4
+
+6	5
+
+
+
+
+3
+1 7
+
+
+2
+
+
+
+
+
+
+-   (1) Màu đèn xử lý: màu xanh là đã đồng ý, màu đỏ là bị trả về. Trường hợp cả 4 đèn của phòng Kinh doanh+TĐG+Kế toán+GĐ kinh doanh đã xanh nhưng TGĐ không đồng ý thì đèn của TP kinh doanh bị chuyển sang đỏ thể hiện cần làm lại (tương tự đối với các phòng TCKT, TĐG, GĐ KD)
+-   (2) Khi 1 trong 2 phòng Kế toán hoặc TĐG đã đồng ý nhưng phòng còn lại không đồng ý sau khi phương án được chỉnh sửa sẽ có ghi chú tại cột “Note” để phòng đã duyệt đèn xanh cho lần duyệt đầu xem lại phương án chỉnh sửa
+-   ( 3) Có thể lọc các thông tin cần thể hiện khi bấm nút filter tại bất kỳ cột nào cần lọc
+
+-   (4) Khung nhập ý kiến có thể bấm “TO” để chỉ đích danh đối tượng nhận ý kiến bấm nút “Trả về” hoặc “Đồng ý” để duyệt phương án.
+-	 (5) Chữ màu hồng là thể hiện ý kiến đó được gửi cho user đang sử dụng (VD: TGĐ ghi ý kiến và chỉ đích danh cho kế toán trưởng kế toán trưởng sẽ nhìn thấy dòng ý kiến đó màu hồng, các phòng ban khác nhìn thấy dòng đó màu xanh bình thường)
+Ý kiến màu xanh là OK, màu đỏ là không OK (trả về)
+
+-   (6) Có thể xem chi tiết phương án và các tài liệu đính kèm phương án.
+
+-   (7) Có thể bấm chuột phải tại 1 phương án bất kỳ để xem lịch sử phương án hoặc tắt các phương án đã duyệt, hiện phần kiến nghị/đề xuất, tắt/bật phần tính thời gian xử lý, xuất ra Excel …
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 9/27
+4.   Hướng dẫn nhân viên kinh doanh 4.1 Lập phương án kinh doanh
+
+
+
+
+
+
+Right click vào biểu tượng phần mềm Chọn “Phương án kinh doanh”
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Right click vào dòng “Thêm mới” Chọn “Thêm HĐ với nhà cung cấp…”
+
+
+
+
+
+
+Nhập mã nhà cung cấp vào ô “Tìm” hoặc right click vào dòng thông tin nhà cung cấp trong danh sách bấm “Chọn” Số phương án sẽ được phát sinh tự động.
+
+
+
+
+Nhập mã nhà cung cấp cần lập phương án
+
+Số phương án phát sinh
+
+
+
+
+Right click tại dòng thông tin NCC bấm “Chọn”
+
+
+Bấm vào dòng thông tin nhà cung cấp đã chọn bấm “Save (Ctrl+S)” để lưu
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 10/27
+
+
+
+
+
+
+
+
+
+
+
+
+Giao diện nhập nội dung phương án xuất hiện như sau:
+-   (1) Tại giao diện chi tiết mỗi phương án bấm chọn “PA gốc” nếu là lần tạo đầu tiên hoặc “Bổ sung phương án” trường hợp phát sinh phương án bổ sung cho phương án gốc
+-   (2) Tích chọn các hình thức kinh doanh của phương án trong bảng danh sách
+-   (3) Nhập các thông tin liên quan đến phương án như: tên hàng, xuất xứ, hình thức hợp đồng, mã ngành hàng, hiệu lực giá bán, hiệu lực giá nhập các thông tin này sẽ hiển thị trên nội dung phương án trình duyệt.
+-   (4) Tích chọn là “PA mở” đối với các phương án khuyến mại, giảm giá nhập do nhà cung cấp chịu 100% chi phí Các phương án này chỉ cần TPKD phê duyệt, GĐ kinh doanh và ban TGĐ chỉ xem, không cần duyệt.
+-	(5) Right click vào dòng thông tin hàng hóa chọn “Lấy danh sách hàng theo nhà cung cấp…” để import dữ liệu hàng hóa theo nhà cung cấp từ phần mềm Dsmart, hoặc chọn “Lấy dữ liệu từ file excel…” để import thông tin hàng hóa từ file excel bên ngoài.
+
+
+
+
+
+1
+
+
+
+
+
+
+2
+5
+
+
+4	3
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 11/27
+Tại bảng thông tin hàng hóa của nhà cung cấp bấm Ctrl+A để chọn tất cả danh sách hoặc kéo  chuột  chọn  các  mã  hàng  cần  lập  phương  án  right  click  bấm  “Chọn”  OK
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- (1) Sau khi có danh sách hàng hóa nhập đầy đủ thông tin hàng hóa cần lập phương án (giá nhập, tỷ lệ lãi, giá bán các vùng)
+- (2) Nhập các thông tin/chú thích liên quan đến phương án trong các mục “Chi phí”, “Kiến nghị đề xuất”, Tài liệu kèm theo PA” để các phòng ban kiểm tra có đầy đủ thông tin phê duyệt.
+- (3) Sau khi nhập đầy đủ thông tin bấm “Cập nhật” để hoàn thành phương án
+
+- (4) Right click vào dòng thông tin phương án chọn “Chuyển phê duyệt” để chuyển phương án lên trưởng phòng kinh doanh.
+Ghi chú: Phương án sau khi chuyển phê duyệt sẽ không được phép chỉnh sửa, trừ trường hợp bị TPKD trả về làm lại.
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 12/27
+4
+
+
+
+
+
+
+2
+
+
+
+1 3
+
+
+* Có thể xem các phương án bị trả về cũng như các phương án chưa được gửi đi:
+
+
+
+
+- Các PA bị trả về, hoặc chưa đẩy đi
+- Click để xem phương án.
+
+Đèn thông báo tiến trình xử lý qua
+các bộ phận
+
+Click để xem ý kiến xử lý
+Phương án
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+* Lập phương án cho chương trình Khuyến mại
+
+Sau khi tạo 1 số hiệu phương án mới tích chọn “Giảm giá theo CTKM” right click vào dòng thông tin hàng hóa, chọn “CTKM”
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 13/27
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Điền đầy đủ thông tin cho chương trình khuyến mại như: (1) Thời gian thực hiện khuyến mại,
+
+giá trị khuyến mại cho giá nhập và giá bán (2) Chọn nút “DS mã hàng” để cập nhật danh sách mã hàng từ phần mềm Dsmart (3) Bấm Ctr-A để chọn tất cả danh sách hoặc kéo chuột chọn các mã hàng cần làm khuyến mại, right click bấm “Chọn” OK
+
+
+
+
+1	2
+
+
+
+
+
+
+
+3
+
+
+
+
+
+
+
+Trên bảng thông tin khuyến mại đã chọn, người sử dụng có thể thay đổi thông tin của mỗi dòng sản phẩm bằng cách right click và chọn các thông tin cần sửa như: địa điểm áp dụng khuyến mại,  thời gian khuyến mại giá nhập/giá bán hoặc xóa mã hàng đã có trong danh sách
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 14/27
+
+
+
+
+
+
+
+
+
+
+
+
+
+Thay vì right click, người sử dụng có thể  tích chọn hoặc bỏ tích từng điểm áp dụng khuyến mại hoặc lựa chọn 1 vùng cần thay đổi
+
+
+
+Điểm lựa chọn tích hoặc không tích
+
+- Vùng lựa chọn và các chức
+năng khi right click
+
+
+
+
+
+
+
+
+
+
+
+
+
+Có thể bấm “Report” để xem giao diện bản in của chương trình khuyến mại đã lập
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Sau khi hoàn thành việc lập phương án khuyến mại bấm “Cập nhật” để lưu right click vào dòng phương án và chọn “Chuyển phê duyệt” để gửi phương án đến TPKD
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 15/27
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 16/27
+Giao diện trang chính của Phương án sau khi hoàn thành:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+4.2 Lập Điều khoản thương mại
+
+Chức năng này dùng để lập các điều khoản thương mại cho 1 hợp đồng với nhà cung cấp, được đính kèm với mỗi phương án ký mới hoặc ký tiếp cho nhà cung cấp đó
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 17/27
+
+
+
+
+Right click vào biểu tượng phần mềm Chọn “Điều khoản thương mại”
+
+
+
+
+
+
+Chọn số PA cần thêm điều khoản thương mại right click, chọn “điều khoản thương mại”
+
+
+
+
+
+
+
+
+
+
+
+
+-   (1) Bấm chọn nút “điều khoản thương mại”
+
+-   (2) Nhập đầy đủ thông tin của nhà cung cấp cho phương án trong bảng thông tin -   (3) Bấm chọn “Save & Exit” để lưu điều khoản
+
+
+
+
+4	3
+
+
+2
+
+
+
+1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 18/27
+Giao diện của Điều khoản thương mại sau khi hoàn thành:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 19/27
+4.3 Theo dõi thanh toán với nhà cung cấp
+
+
+
+
+Chuột phải vào biểu tượng phần mềm Chọn “Thanh toán cho nhà cung cấp”
+
+
+
+
+
+
+
+
+-   Nhập đầy đủ thông tin: Mã chủ hàng, thời gian nhập hàng, các điểm nhập hàng, thông tin hàng xuất trả Bấm “Lấy dữ liệu” Bấm “Lập tờ kê thanh toán” Yes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Khi hiện bảng chi tiết thông tin tờ kê (1) nhập đầy đủ thông tin công nợ của nhà cung cấp (2) Bấm “cập nhật” (3) Nhập tên trong “ds cán bộ phê duyệt” nếu cần và bấm “Cập nhật” để hoàn thiện lưu thông tin (4) bấm “Tờ kê” để in tờ kê thanh toán cho nhà cung cấp (Có thể xuất ra file .pdf để lưu hoặc gửi email cho đối tác)
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 20/27
+1
+
+
+
+
+
+
+
+
+
+4	2
+
+
+3
+
+
+
+
+
+
+Chức năng “Lấy dữ liệu tổng” và “Tổng hợp số liệu” được nhân viên kinh doanh sử dụng lập báo cáo tổng hợp gửi TPKD (có thể xuất ra file excel nếu cần)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+5.   Hướng dẫn nhân viên QTRR&TĐG, nhân viên Tài chính Kế toán
+
+-   Với quyền hạn của các account nhân viên, nhân viên có thể xem được phương án, file đính kèm và chỉ được phép cho ý kiến (comment) cho phương án đó để hỗ trợ Trưởng phòng trong việc ra quyết định, không được phép xử lý phương án.
+-   Khi trưởng phòng đã phê duyệt đồng ý cho phương án thì nhân viên không thể comment cho phương án đó nữa.
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 21/27
+Chọn 1 phương án cần xử lý double click hoặc chuột phải chọn “Xử lý” kiểm tra thông tin phương án nhập ý kiến bấm Lưu
+
+
+Nhập ý kiến
+
+
+
+
+
+
+Chọn phương án cần xử lý	Lưu ý kiến
+
+
+
+
+
+
+
+
+
+
+
+6.   Hướng dẫn cho các Trưởng phòng – Giám đốc Kinh doanh - Ban Tổng Giám đốc
+
+-   Với các account của trưởng phòng, lãnh đạo có thể phê duyệt phương án hoặc trả lại phương án dựa trên phần ý kiến của nhân viên phòng ban mình.
+-   Chọn phương án cần xử lý Nhập ý kiến xử lý chọn hoặc không chọn người nhận ý kiến chỉ đạo trong phần “To:”bấm “Trả về” hoặc “Đồng ý”
+-   Chú ý phần “Số ngày XL” đảm bảo số ngày xử lý cho mỗi phương án theo đúng quy định
+-   Sau khi trưởng phòng đã nhập ý kiến xử lý và bấm nút “Đồng ý” sẽ không được nhập thêm ý kiến mới hoặc chỉnh sửa ý kiến cũ.
+-   Đối với các phương án chọn là “Giảm giá nhập” và “Giảm giá theo CTKM”  phương án sẽ chuyển thẳng đến GĐ kinh doanh phê duyệt   mà không có trên giao diện của phòng Thẩm định giá+phòng TCKT
+-   Đối với các phương án chọn là “phương án mở” Phương án này chỉ cần sự phê duyệt của TP kinh doanh sau đó chuyển thẳng đến GĐ kinh doanh và ban TGĐ với hình thức chỉ cần xem, không cần phê duyệt.
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 22/27
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+7.   Hướng dẫn cho nhân viên Văn phòng
+
+-   Sau khi PAKD được phòng Thẩm định giá + phòng TCKT+GĐ kinh doanh đồng ý nhân viên văn phòng có trách nhiệm in Hợp đồng cùng PAKD trình ban TGĐ phê duyệt.
+-   Phương án sau khi được in sẽ lưu lại thời điểm in để tránh trường hợp in 2
+
+-   Sau khi ban TGĐ phê duyệt trên bản cứng nhân viên văn phòng dựa trên sự phê duyệt để cập nhật ý kiến vào phần mềm PAKD bấm “Đồng ý” hoặc “Trả về”  chuyển văn thư lấy số nội bộ cho phương án được duyệt và theo dõi qua hệ thống phần mềm Quản lý văn bản
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 23/27
+8.   Hướng dẫn cho nhân viên phòng Kinh tế tổng hợp
+
+
+
+
+
+Right click vào biểu tượng phần mềm  Chọn “Tổng hợp xử lý PAKD…”
+
+
+
+
+
+
+
+- Các PAKD sau khi được ban TGĐ phê duyệt sẽ thể hiện trên giao diện của nhân viên phòng KTTH
+5 3
+
+4
+
+6
+2
+
+
+
+
+
+
+
+1
+
+
+
+
+- (1) Tích chọn các phương án được “Phê duyệt” hoặc “PA mở (đã duyệt)” để lọc phương án
+
+- ( 2) Dựa trên bản cứng từ phòng Kinh doanh chuyển sang để lấy “số PA”  và số “Lần BS” hoặc chọn phương án trên giao diện phần mềm.
+- (3) Chọn vùng cần đồng bộ giá Mã vùng tương ứng sẽ hiển thị tại ô “Zones”  (vùng 0 là toàn bộ hệ thống siêu thị, vùng 3 là siêu thị Sài Đồng)
+- (4) Bấm nút “Đồng bộ giá” để cập nhật giá bán lẻ mới vào cơ sở dữ liệu phần mềm Dsmart tại trung tâm
+- (5) Các phương án sau khi đã được cập nhật giá sang Dsmart sẽ hiển thị dòng “Đã đồng bộ giá tại trung tâm” trên phần ghi chú
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 24/27
+- (6) So sánh giá giữa trung tâm và thành viên, đồng thời cập nhật giá bán lẻ đến từng siêu thị thành viên bằng cách bấm nút “Cập nhật giá bán lẻ cho các siêu thị” bấm nút “Đồng bộ giá bán lẻ”
+9.   Hướng dẫn cho bộ phận Kiểm soát nội bộ
+
+
+
+Right click vào biểu tượng phần mềm:
+
+* Chọn “Tổng hợp xử lý PAKD…” để xem và xuất dữ liệu ra file Excel.
+
+* Chọn “Xử lý theo quy trình mới…” để xem  nội  dung  PA+file  đính  kèm  và  tiến trình phê duyệt các phương án.
+
+
+Trong phần “Xử lý theo quy trình mới”:
+  Có thể xem tất cả các phương án nhưng không được phép đưa ý kiến cho phương án
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Có thể theo dõi lịch sử thay đổi giá của 1 mã hàng theo mỗi phương án hoặc theo tất cả các phương án: Right click vào dòng phương án chọn “Lịch sử thay đổi giá”
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 25/27
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Tại bảng thông tin giá hàng:
+
+-	(1): Chọn “Phương án hiện thời” hoặc “Toàn bộ” để xem lịch sử thay đổi giá -	(2): double click vào mã hàng cần xem giá
+-	(3): Bảng thông tin chi tiết lịch sử thay đổi giá của mỗi mã hàng
+
+
+
+
+
+
+
+
+
+
+1	2
+
+
+
+
+3
+
+
+
+
+
+
+
+
+
+  Trong phần “Tổng hợp xử lý PAKD”:
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 26/27
+Chọn Trạng thái phê duyệt & khoảng thời gian cần lọc phương án.. Bấm nút Refresh để cập nhật dữ liệu right click chọn các thông tin cần xem hoặc chọn “Xuất Excel” để xuất toàn bộ các thông tin trong bảng ra Excel, phục vụ việc đối chiếu số liệu.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hà Nội, ngày 20 tháng 04 năm 2017
+
+Phòng Kinh tế Tổng hợp
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Hướng dẫn sử dụng – Phần mềm Phương án kinh doanh T04.2017	Trang 27/27
