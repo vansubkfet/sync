@@ -1,0 +1,6225 @@
+tôi đang vân hành một hệ thống quản lý sản xuất cho một nhà máy. tôi muốn xây dựng 1 hệ thống sử dụng claude sdk, harness, mcp, skills,... để xử lý user request trong quá trình vận hành. user request có thể bao gồm guideline, configuration trên hệ thống, có thể là change codebase, etc... nó bao gồm một số bước như phân tích yêu cầu, contact với user để làm rõ yêu cầu, lên kế hoạch thực hiện, thực hiện, e2e test, etc... một trong những yêu cầu quan trọng đối với hệ thống là human-in-loop. tôi vẫn phải là người ra quyết định, review, bổ sung thêm thông tin hoặc contact với user, etc... hãy phân tích những thông tin tôi đưa ra một cách chi tiết và đề xuất cho tôi cách tiếp cận phù hợp. tất nhiên, trong quá trình phân tích và đưa ra cách tiếp cận, nếu bạn chưa rõ thông tin ở điểm nào, hãy ask me để tôi cung cấp thêm thông tin cho bạn.
+
+Tôi nghĩ bài toán của bạn không nên được thiết kế như “một Claude agent có rất nhiều MCP tools”. Với hệ thống quản lý sản xuất đang vận hành thực tế, cách tiếp cận phù hợp hơn là xây dựng một Agentic Operations Platform trong đó:
+
+Claude Agent SDK = reasoning/execution engine.
+Harness = lớp kiểm soát agent và workflow runtime.
+MCP = abstraction layer để agent truy cập hệ thống.
+Skills = domain knowledge + quy trình nghiệp vụ.
+Hooks / policy engine = guardrails và enforcement.
+Human-in-the-loop = một thành phần chính thức của workflow, không phải một popup “Are you sure?”.
+State / audit / approval system = nguồn sự thật (source of truth), không phải conversation của Claude.
+
+Đây là điểm tôi cho rằng quan trọng nhất trước khi bắt đầu implementation.
+
+Các capability hiện tại của Claude Code/Agent SDK khá phù hợp với hướng này: SDK hỗ trợ programmatic hooks để chặn/cho phép tool call, audit và yêu cầu human approval; filesystem hooks có thể dùng chung với Claude Code; Skills hỗ trợ các workflow có thể tái sử dụng và có thể chạy trong subagent. MCP hiện cũng đã có specification 2026-07-28, hỗ trợ tools/resources/prompts và cơ chế multi-round-trip cho các tình huống cần input từ phía client.
+
+1. Tôi hiểu bài toán của bạn như sau
+
+Bạn có một hệ thống quản lý sản xuất đang chạy thật tại nhà máy.
+
+Trong quá trình vận hành sẽ phát sinh các request như:
+
+Loại A — hỏi/tham khảo
+
+Ví dụ:
+
+“Tại sao work order WO-2026-00123 chưa chuyển sang trạng thái Completed?”
+
+Hoặc:
+
+“Quy trình xử lý sản phẩm lỗi hiện tại là gì?”
+
+Agent chỉ cần:
+
+Understand
+   ↓
+Query system
+   ↓
+Analyze
+   ↓
+Answer
+
+Không có side effect.
+
+Loại B — thay đổi configuration
+
+Ví dụ:
+
+“Thêm một bước QC approval trước khi production order được đóng.”
+
+Hoặc:
+
+“Từ tháng sau, nếu quantity > 10,000 thì phải có Production Manager approve.”
+
+Đây đã là request có side effect.
+
+Agent phải:
+
+Understand
+    ↓
+Clarify
+    ↓
+Analyze current configuration
+    ↓
+Propose change
+    ↓
+Human review
+    ↓
+Apply configuration
+    ↓
+Validate
+    ↓
+E2E test
+    ↓
+Human acceptance
+Loại C — thay đổi guideline / business rule
+
+Ví dụ:
+
+“Từ nay material shortage phải được xử lý theo guideline mới.”
+
+Có thể liên quan đến:
+
+SOP
+work instruction
+business rules
+validation rules
+approval rules
+production policy
+master data policy
+
+Đây có thể là knowledge change, configuration change, hoặc code change.
+
+Agent phải xác định chính xác loại nào.
+
+Loại D — thay đổi codebase
+
+Ví dụ:
+
+“Khi production order bị hold, hệ thống phải tự tạo investigation task cho QA.”
+
+Agent phải:
+
+Requirement analysis
+       ↓
+Codebase investigation
+       ↓
+Clarification
+       ↓
+Implementation plan
+       ↓
+Human approval
+       ↓
+Coding
+       ↓
+Unit test
+       ↓
+Integration test
+       ↓
+E2E test
+       ↓
+Code review
+       ↓
+Human approval
+       ↓
+Deploy
+       ↓
+Production verification
+
+Đây đã gần với một AI software engineer + operations engineer.
+
+2. Điểm quan trọng nhất: đừng để Claude làm workflow engine
+
+Đây là architectural decision tôi sẽ đưa ra ngay từ đầu.
+
+Không nên:
+
+User
+  ↓
+Claude
+  ├── decides what to do
+  ├── asks user
+  ├── modifies DB
+  ├── modifies code
+  ├── deploys
+  └── decides when finished
+
+Bởi vì lúc đó:
+
+Claude vừa là planner, executor, workflow engine, permission system và decision maker.
+
+Đây là kiến trúc rất khó kiểm soát.
+
+Thay vào đó:
+
+                     ┌─────────────────────┐
+                     │       HUMAN         │
+                     │                     │
+                     │ Review / Approve    │
+                     │ Reject / Modify     │
+                     │ Provide information │
+                     └──────────┬──────────┘
+                                │
+                                ▼
+┌──────────────┐       ┌──────────────────────┐
+│    User      │──────▶│  Agent Operations    │
+│   Request    │       │      Harness         │
+└──────────────┘       └──────────┬───────────┘
+                                  │
+                    ┌─────────────┴──────────────┐
+                    │                            │
+                    ▼                            ▼
+              ┌───────────┐                ┌───────────┐
+              │  Claude   │                │   State   │
+              │ Agent SDK │                │ / Audit   │
+              └─────┬─────┘                └───────────┘
+                    │
+             ┌──────┴─────────┐
+             │                │
+             ▼                ▼
+         Skills             MCP
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+          Production       Git/CI/CD       Documents
+           System          /Codebase       /Knowledge
+
+Harness là trung tâm. Claude không phải trung tâm.
+
+3. Harness thực sự nên làm gì?
+
+Tôi đề xuất xem Harness như một Agent Runtime + Control Plane.
+
+Nó chịu trách nhiệm về:
+
+3.1. Request lifecycle
+
+Ví dụ:
+
+REQUESTED
+   ↓
+TRIAGING
+   ↓
+NEED_CLARIFICATION
+   ↓
+ANALYZING
+   ↓
+PLANNING
+   ↓
+WAITING_HUMAN_APPROVAL
+   ↓
+EXECUTING
+   ↓
+VALIDATING
+   ↓
+WAITING_ACCEPTANCE
+   ↓
+COMPLETED
+
+Hoặc:
+
+REJECTED
+CANCELLED
+FAILED
+ROLLED_BACK
+
+Claude không tự định nghĩa lifecycle này.
+
+4. Tôi sẽ biến mỗi request thành một "Work Item"
+
+Ví dụ:
+
+{
+  "id": "REQ-2026-001245",
+  "type": "configuration_change",
+  "requester": {
+    "id": "user123"
+  },
+  "status": "WAITING_HUMAN_APPROVAL",
+
+  "objective": "...",
+
+  "context": {
+    "factory": "HCM-01",
+    "module": "production",
+    "environment": "production"
+  },
+
+  "clarifications": [],
+
+  "analysis": {},
+
+  "plan": {},
+
+  "execution": {},
+
+  "validation": {},
+
+  "approvals": [],
+
+  "artifacts": [],
+
+  "audit": []
+}
+
+Điều này cực kỳ quan trọng.
+
+Conversation với Claude chỉ là:
+
+working memory / interaction surface
+
+Còn WorkItem mới là:
+
+system of record.
+
+Nếu Claude crash, session mất, model đổi, hoặc bạn restart service:
+
+REQ-2026-001245
+
+vẫn tồn tại.
+
+Agent có thể resume.
+
+5. Human-in-the-loop không nên chỉ là approval
+
+Tôi đề xuất bạn định nghĩa HITL thành 4 loại interaction.
+
+5.1. Clarification
+
+Agent không đủ thông tin:
+
+“Anh muốn áp dụng rule này cho tất cả factory hay chỉ HCM-01?”
+
+Human trả lời:
+
+HCM-01 only.
+
+Agent tiếp tục.
+
+5.2. Information injection
+
+Agent cần thông tin mà hệ thống không có.
+
+Ví dụ:
+
+“Guideline nói production manager approval, nhưng tôi không biết production manager hiện tại là ai. Vui lòng cung cấp role/user.”
+
+Human:
+
+Production Manager = user456
+5.3. Decision / approval
+
+Agent đã có đủ thông tin:
+
+I propose:
+
+1. Modify rule X
+2. Add approval step Y
+3. Update validation Z
+4. Test cases:
+   - ...
+   - ...
+5. Risk:
+   - Existing orders are unaffected
+   - New orders follow new rule
+
+Sau đó:
+
+[Approve]
+[Reject]
+[Request changes]
+
+Đây là decision point.
+
+5.4. Acceptance
+
+Agent đã implementation:
+
+Implementation complete.
+
+Changed:
+  7 files
+
+Tests:
+  42 passed
+
+E2E:
+  8/8 passed
+
+Production smoke test:
+  passed
+
+Please review result.
+
+Bạn có thể:
+
+ACCEPT
+REQUEST_REWORK
+ROLLBACK
+
+Đây là khác với approval trước implementation.
+
+6. Tôi đặc biệt khuyến nghị tách "Approval" và "Acceptance"
+
+Ví dụ:
+
+Approval
+
+“Cho phép agent thực hiện thay đổi này.”
+
+Acceptance
+
+“Tôi xác nhận kết quả thực hiện đúng yêu cầu.”
+
+Hai thứ này khác nhau.
+
+Workflow:
+
+                ┌───────────────┐
+                │    ANALYZE    │
+                └───────┬───────┘
+                        ↓
+                ┌───────────────┐
+                │     PLAN      │
+                └───────┬───────┘
+                        ↓
+               HUMAN APPROVAL
+                        │
+                 ┌──────┴──────┐
+                 │             │
+              REJECT         APPROVE
+                               │
+                               ↓
+                         EXECUTION
+                               │
+                               ↓
+                         VALIDATION
+                               │
+                               ↓
+                       HUMAN ACCEPTANCE
+                               │
+                         ┌─────┴─────┐
+                         ↓           ↓
+                       ACCEPT     REWORK
+
+Đây là một pattern tôi nghĩ rất phù hợp với môi trường production.
+
+7. Permission phải nằm ngoài Claude
+
+Đây là nguyên tắc security rất quan trọng.
+
+Không được:
+
+Claude prompt:
+
+"You must not delete production data."
+
+và xem đó là security.
+
+Prompt không phải security boundary.
+
+Thay vào đó:
+
+Claude
+   ↓
+MCP tool
+   ↓
+Harness Policy
+   ↓
+Authorization
+   ↓
+Human approval?
+   ↓
+Tool execution
+
+Ví dụ Claude gọi:
+
+production.update_work_order()
+
+Harness kiểm tra:
+
+Actor: AI_AGENT
+
+Operation:
+  UPDATE_WORK_ORDER
+
+Target:
+  Production / WO-123
+
+Environment:
+  PRODUCTION
+
+Risk:
+  HIGH
+
+Policy:
+
+HIGH + PRODUCTION
+        ↓
+HUMAN_APPROVAL_REQUIRED
+
+Claude không thể bypass.
+
+8. Tôi sẽ xây dựng Risk Classification
+
+Đây là một trong những thành phần quan trọng nhất của hệ thống.
+
+Ví dụ:
+
+Risk	Ví dụ	Human approval
+READ	Query production order	Không
+READ	Query inventory	Không
+ANALYSIS	Analyze production issue	Không
+LOW WRITE	Create draft	Có thể không
+MEDIUM WRITE	Change configuration	Có
+HIGH WRITE	Modify production workflow	Có
+VERY HIGH	Production DB migration	Có
+CRITICAL	Delete production data	Bắt buộc
+
+Nhưng tôi không khuyến nghị hard-code đơn giản theo tên tool.
+
+Nên classification dựa trên:
+
+operation
++
+target
++
+environment
++
+data sensitivity
++
+blast radius
++
+reversibility
++
+business criticality
+
+Ví dụ:
+
+update_configuration
+
+DEV
+→ LOW
+
+UAT
+→ MEDIUM
+
+PRODUCTION
+→ HIGH
+9. MCP nên được dùng như "capability boundary"
+
+MCP rất phù hợp với bài toán này.
+
+MCP hiện cung cấp các abstraction chính như:
+
+Tools
+Resources
+Prompts
+
+và MCP 2026-07-28 đã có cơ chế stateless, authorization hardening và multi-round-trip input handling.
+
+Nhưng tôi sẽ không expose database trực tiếp.
+
+Không nên
+MCP
+ └── execute_sql(sql)
+
+Agent:
+
+UPDATE production_order
+SET status='COMPLETED'
+WHERE id=123
+
+Đây là một security nightmare.
+
+Nên
+MCP Production Server
+
+Tools:
+
+production.get_order
+production.search_orders
+production.get_operation
+production.get_machine_status
+
+production.create_change_request
+production.validate_change
+production.apply_change
+
+Agent không biết database schema.
+
+10. MCP tool nên đại diện cho business capability
+
+Ví dụ:
+
+production.get_work_order
+
+thay vì:
+
+database.query
+
+Và:
+
+production.change_workflow_configuration
+
+thay vì:
+
+database.update
+
+Điều này tạo ra một abstraction cực kỳ quan trọng:
+
+AI
+ ↓
+Business capability
+ ↓
+Domain service
+ ↓
+Database
+
+thay vì:
+
+AI
+ ↓
+Database
+11. Tôi sẽ chia MCP thành nhiều domain server
+
+Ví dụ:
+
+MCP Gateway
+│
+├── Production MCP
+│
+├── Inventory MCP
+│
+├── Quality MCP
+│
+├── Maintenance MCP
+│
+├── Configuration MCP
+│
+├── Documentation MCP
+│
+├── Git MCP
+│
+├── CI/CD MCP
+│
+└── Monitoring MCP
+
+Ví dụ Production MCP:
+
+production.get_work_order
+production.get_routing
+production.get_operation
+production.get_material_consumption
+production.get_machine_status
+production.get_production_history
+
+Configuration MCP:
+
+config.get_workflow
+config.get_rule
+config.get_parameter
+config.propose_change
+config.validate_change
+config.apply_change
+
+Git MCP:
+
+repo.search
+repo.read
+repo.diff
+repo.create_branch
+repo.commit
+repo.create_pr
+
+CI/CD MCP:
+
+ci.run_tests
+ci.run_e2e
+ci.build
+ci.deploy_staging
+ci.get_result
+12. Nhưng MCP không phải nơi quyết định authorization
+
+Ví dụ:
+
+Claude
+ ↓
+config.apply_change()
+ ↓
+MCP
+ ↓
+Harness Authorization
+ ↓
+Policy
+ ↓
+Human approval
+ ↓
+Domain API
+
+MCP là protocol/interface.
+
+Harness là control.
+
+Domain service là business enforcement.
+
+Ba lớp này không nên trộn lẫn.
+
+13. Skills nên chứa "how to", không chứa security
+
+Claude Skills hiện hỗ trợ reusable instructions/workflows, supporting files và invocation control; skill có thể được auto-invoke hoặc chỉ cho phép explicit invocation.
+
+Ví dụ:
+
+skills/
+│
+├── production/
+│   ├── investigate-production-issue/
+│   ├── change-production-workflow/
+│   └── analyze-production-order/
+│
+├── configuration/
+│   ├── change-business-rule/
+│   └── modify-master-data/
+│
+├── development/
+│   ├── analyze-codebase/
+│   ├── implement-change/
+│   ├── run-e2e/
+│   └── prepare-release/
+│
+└── operations/
+    ├── investigate-incident/
+    └── production-health-check/
+
+Ví dụ:
+
+change-production-workflow/SKILL.md
+
+có thể quy định:
+
+1. Inspect current workflow.
+2. Identify affected scenarios.
+3. Identify existing approvals.
+4. Identify impact on in-flight transactions.
+5. Never modify production directly.
+6. Generate proposed configuration change.
+7. Request human approval.
+8. Apply only after approval.
+9. Validate affected workflows.
+10. Produce change report.
+
+Nhưng:
+
+Never modify production directly
+
+không nên là security mechanism duy nhất.
+
+Nó chỉ là instruction.
+
+Security thật phải nằm ở Harness/Policy/MCP/domain layer.
+
+14. Skills và MCP có vai trò hoàn toàn khác nhau
+
+Tôi sẽ phân biệt như sau:
+
+Component	Trả lời câu hỏi
+Claude	Think
+Harness	Control
+Skill	How should I do this?
+MCP	What capabilities can I access?
+Policy	Am I allowed to do this?
+Human	Should this happen?
+Domain system	Can this operation actually happen?
+Audit	What happened?
+
+Đây là mental model tôi khuyên bạn giữ xuyên suốt architecture.
+
+15. Harness nên có "Agent Loop"
+
+Một execution loop có thể như sau:
+
+┌──────────────────────────────┐
+│         WORK ITEM            │
+└──────────────┬───────────────┘
+               ↓
+        Load context
+               ↓
+        Load applicable
+          skills/policies
+               ↓
+        ┌──────────────┐
+        │ Claude Agent │
+        └──────┬───────┘
+               ↓
+          Tool request
+               ↓
+        ┌──────────────┐
+        │   Harness    │
+        │ Policy check │
+        └──────┬───────┘
+               ↓
+        ┌──────┴───────┐
+        │              │
+      DENY          APPROVAL
+        │              │
+        ↓              ↓
+     Claude       Human review
+     notified          │
+                       ↓
+                  APPROVED?
+                       │
+                       ↓
+                  Execute MCP
+                       │
+                       ↓
+                  Tool result
+                       │
+                       ↓
+                  Claude again
+
+Agent loop có thể tiếp tục hàng chục bước.
+
+Nhưng mỗi side effect đều đi qua control layer.
+
+16. Human không nên phải approve từng tool call
+
+Đây là một trap rất dễ gặp.
+
+Nếu request:
+
+“Implement feature X.”
+
+Claude sẽ có thể gọi:
+
+read file
+read file
+grep
+read file
+run test
+edit
+read
+edit
+test
+git diff
+...
+
+Bạn không muốn:
+
+Approve?
+Approve?
+Approve?
+Approve?
+Approve?
+
+Human-in-loop phải ở semantic checkpoints, không phải ở từng low-level operation.
+
+Ví dụ:
+
+READ operations
+    ↓
+automatic
+
+CODE EDIT in isolated branch
+    ↓
+automatic
+
+RUN TEST
+    ↓
+automatic
+
+CREATE PR
+    ↓
+automatic
+
+MERGE
+    ↓
+HUMAN APPROVAL
+
+DEPLOY PRODUCTION
+    ↓
+HUMAN APPROVAL
+
+Đây là một distinction cực kỳ quan trọng.
+
+17. Tôi sẽ dùng "Approval Gate"
+
+Ví dụ:
+
+Gate G1 — Requirement approval
+Gate G2 — Implementation plan approval
+Gate G3 — Configuration change approval
+Gate G4 — Code merge approval
+Gate G5 — Production deployment approval
+Gate G6 — Final acceptance
+
+Không phải request nào cũng cần tất cả.
+
+18. Ví dụ request thực tế
+
+Giả sử user nói:
+
+“Tôi muốn khi production order vượt 10,000 units thì Production Manager phải approve trước khi release.”
+
+Agent bắt đầu.
+
+Phase 1 — Understand
+
+Agent tìm:
+
+production release workflow
+approval configuration
+quantity rule
+Production Manager role
+Phase 2 — Clarify
+
+Agent phát hiện:
+
+Có hai production types: Standard và Rework. Anh muốn áp dụng cho cả hai hay chỉ Standard?
+
+Human:
+
+Chỉ Standard.
+
+Phase 3 — Analyze
+
+Agent:
+
+Current behavior:
+Standard → Planner → Release
+
+Proposed:
+quantity <= 10,000
+    Planner → Release
+
+quantity > 10,000
+    Planner → Production Manager → Release
+
+Rework:
+unchanged
+Phase 4 — Impact analysis
+
+Agent:
+
+Affected configuration:
+  production.workflow.standard.release
+
+Affected transactions:
+  new orders only
+
+Existing in-flight orders:
+  unaffected
+
+Risk:
+  medium
+
+Rollback:
+  restore configuration version 17
+Phase 5 — Human approval
+
+UI:
+
+CHANGE REQ-123
+
+Summary
+-------
+
+Add Production Manager approval when
+Standard Production Order quantity > 10,000.
+
+Impact
+------
+Standard orders only
+New orders only
+
+Rollback
+--------
+Configuration version 17
+
+[Approve] [Request changes] [Reject]
+
+Bạn approve.
+
+Phase 6 — Execution
+
+Agent:
+
+create configuration version 18
+validate rule
+run workflow tests
+Phase 7 — E2E
+
+Agent chạy:
+
+TC01 quantity=5000
+ → release without approval
+
+TC02 quantity=10000
+ → release without approval
+
+TC03 quantity=10001
+ → Production Manager approval required
+
+TC04 Rework quantity=50000
+ → unchanged
+Phase 8 — Acceptance
+8/8 tests passed
+
+Configuration version:
+18
+
+Please review.
+
+[Accept]
+[Request rework]
+[Rollback]
+
+Bạn accept.
+
+Đây chính là workflow mà tôi nghĩ hệ thống của bạn nên hướng tới.
+
+19. Với code change thì nên có sandbox/branch
+
+Đây là điểm tôi đặc biệt khuyến nghị.
+
+Không:
+
+Claude → production repository
+
+Nên:
+
+Repository
+    ↓
+Agent workspace
+    ↓
+isolated branch/worktree
+    ↓
+Claude modifies
+    ↓
+tests
+    ↓
+E2E
+    ↓
+diff
+    ↓
+human review
+    ↓
+PR
+    ↓
+merge
+
+Claude Code có hỗ trợ isolated contexts/worktrees và Skills có thể chạy trong forked/subagent contexts, nên capability này khá phù hợp để xây dựng các execution environments tách biệt.
+
+20. E2E test phải là một capability riêng
+
+Không để Claude tự nói:
+
+“I tested it and everything works.”
+
+Thay vào đó:
+
+Claude:
+  "I believe this should work."
+
+Harness:
+  run actual tests
+
+Test runner:
+  37 passed
+  2 failed
+
+Harness:
+  feed results back to Claude
+
+Agent có thể:
+
+analyze failure
+→ modify
+→ rerun
+
+cho đến khi đạt policy:
+
+max_iterations = 5
+
+Sau đó human được gọi vào nếu vẫn fail.
+
+21. Verification nên có nhiều lớp
+
+Tôi sẽ thiết kế:
+
+Verification
+│
+├── Static validation
+│
+├── Unit tests
+│
+├── Integration tests
+│
+├── E2E tests
+│
+├── Configuration validation
+│
+├── Business invariant validation
+│
+└── Production smoke test
+
+Ví dụ:
+
+"Production order cannot be completed
+without all mandatory QC results."
+
+Đây không chỉ là test.
+
+Đây là business invariant.
+
+Agent không được phép tự tuyên bố pass nếu invariant chưa được verify.
+
+22. Audit log là bắt buộc
+
+Bạn đang nói về production system.
+
+Vì vậy tôi sẽ lưu:
+
+Request
+    ↓
+Requirement
+    ↓
+Clarification
+    ↓
+Agent reasoning summary
+    ↓
+Plan
+    ↓
+Human approval
+    ↓
+Tool calls
+    ↓
+Changes
+    ↓
+Tests
+    ↓
+Deployment
+    ↓
+Acceptance
+
+Ví dụ:
+
+{
+  "event": "CONFIGURATION_CHANGED",
+
+  "request_id": "REQ-123",
+
+  "actor": {
+    "type": "AI_AGENT",
+    "agent_id": "claude-production-agent"
+  },
+
+  "authorized_by": {
+    "user_id": "admin01"
+  },
+
+  "operation": "UPDATE_WORKFLOW",
+
+  "target": "production.standard.release",
+
+  "before_version": 17,
+  "after_version": 18,
+
+  "timestamp": "...",
+
+  "approval_id": "APR-991"
+}
+
+Đây sẽ rất hữu ích khi có incident:
+
+“Ai đã thay đổi workflow này?”
+
+Bạn có thể trả lời:
+
+Human request:
+REQ-123
+
+AI:
+Claude Agent vX
+
+Approved by:
+User X
+
+Configuration:
+v17 → v18
+
+Tests:
+8/8 passed
+
+Timestamp:
+...
+23. Tôi sẽ không lưu "chain of thought"
+
+Audit không cần lưu hidden reasoning của model.
+
+Thay vào đó lưu:
+
+Decision summary
+Evidence
+Plan
+Tool calls
+Tool results
+Changes
+Tests
+Approvals
+
+Ví dụ:
+
+Analysis summary:
+The current workflow does not distinguish Standard
+and Rework production orders.
+
+Evidence:
+- workflow ID = 123
+- rule ID = 456
+
+Decision:
+Create conditional approval rule.
+
+Risk:
+Medium.
+
+Reason:
+Existing in-flight orders are unaffected.
+
+Như vậy audit vừa hữu ích vừa không phụ thuộc vào việc lưu internal reasoning.
+
+24. Tôi đề xuất một "Agent Manifest"
+
+Mỗi agent phải khai báo rõ:
+
+agent:
+  id: production-operations-agent
+
+  capabilities:
+    - production.read
+    - production.analyze
+    - configuration.propose
+    - configuration.apply
+    - code.read
+    - code.modify
+    - test.run
+
+  forbidden:
+    - production.database.raw_sql
+    - production.delete
+    - production.deploy_without_approval
+
+  approval_policy:
+    configuration_change: required
+    code_merge: required
+    production_deploy: required
+
+Nhưng một lần nữa:
+
+Manifest không thay thế authorization thực tế.
+
+Nó là declarative capability description.
+
+25. Hooks rất phù hợp với enforcement
+
+Claude Code hooks có lifecycle events như PreToolUse, PostToolUse, PermissionRequest, Elicitation, SessionStart, SessionEnd, v.v.; đặc biệt PreToolUse có thể block tool trước khi thực thi.
+
+Trong SDK, programmatic hooks có thể trả về decision để cho phép hoặc block tool execution.
+
+Ví dụ:
+
+PreToolUse
+     ↓
+Is this production write?
+     ↓
+Yes
+     ↓
+Check approval
+     ↓
+No approval
+     ↓
+BLOCK
+
+Claude nhận:
+
+Tool execution blocked.
+
+Reason:
+Human approval required for production configuration change.
+
+Sau đó agent có thể tiếp tục:
+
+I need human approval.
+26. Nhưng tôi sẽ không phụ thuộc hoàn toàn vào Claude Code Hooks
+
+Đây là một distinction quan trọng.
+
+Nếu hệ thống của bạn là production Agent Platform, tôi muốn:
+
+Application-level policy
++
+Claude SDK hooks
++
+MCP authorization
++
+Domain authorization
+
+Ví dụ:
+
+                 ┌──────────────────┐
+                 │   Agent Harness  │
+                 └────────┬─────────┘
+                          │
+                    Policy Engine
+                          │
+                    ┌─────┴─────┐
+                    │            │
+                  ALLOW        APPROVAL
+                    │            │
+                    └─────┬──────┘
+                          ↓
+                     MCP Server
+                          ↓
+                    Domain API
+                          ↓
+                       DB
+
+Có nhiều lớp bảo vệ.
+
+27. Tôi cũng sẽ tách "Agent" theo domain
+
+Không nhất thiết chỉ có:
+
+Claude Agent
+
+Có thể:
+
+                    Agent Harness
+                         │
+          ┌──────────────┼──────────────┐
+          │              │              │
+          ▼              ▼              ▼
+     Production      Configuration    Developer
+       Agent            Agent          Agent
+          │              │              │
+          ▼              ▼              ▼
+      Prod MCP        Config MCP       Git MCP
+
+Nhưng ban đầu tôi không khuyến nghị tạo quá nhiều autonomous agents.
+
+Tốt hơn là:
+
+1 Orchestrator
++
+specialized skills
++
+isolated subagents
+
+Ví dụ:
+
+Production Operations Agent
+   │
+   ├── requirement-analysis skill
+   ├── production-investigation skill
+   ├── configuration-change skill
+   ├── code-change skill
+   └── e2e-validation skill
+
+Sau này mới tách agent khi thật sự cần.
+
+28. Subagent rất phù hợp cho những task chuyên biệt
+
+Ví dụ request:
+
+“Tại sao production order này không release được?”
+
+Main agent có thể delegate:
+
+                 Main Agent
+                     │
+       ┌─────────────┼─────────────┐
+       ↓             ↓             ↓
+Workflow Agent   Data Agent    Code Agent
+       │             │             │
+       ↓             ↓             ↓
+ workflow       order/history    source code
+ analysis         analysis        analysis
+       └─────────────┬─────────────┘
+                     ↓
+              Main Agent
+
+Nhưng subagent nên trả về:
+
+Findings
+Evidence
+Recommendation
+Confidence
+
+không tự thực hiện dangerous actions.
+
+29. Tôi sẽ phân biệt 3 loại execution
+Mode 1 — Read-only
+Agent
+ ↓
+MCP
+ ↓
+System
+
+Không cần human.
+
+Mode 2 — Prepare
+
+Agent:
+
+analyze
+plan
+generate diff
+generate config
+generate test
+
+Không apply.
+
+Human review.
+
+Mode 3 — Execute
+
+Agent:
+
+apply
+deploy
+modify
+
+Chỉ sau approval.
+
+Đây là pattern rất mạnh:
+
+AI can prepare almost everything; AI can execute only what policy allows.
+
+30. Tôi đề xuất "Dry Run" là default
+
+Ví dụ user:
+
+“Change approval workflow.”
+
+Agent không lập tức change.
+
+Nó tạo:
+
+Change Plan
+
+Before:
+A → B
+
+After:
+A → Manager Approval → B
+
+Affected:
+23 workflow definitions
+
+Risk:
+Medium
+
+Migration:
+No migration required
+
+Rollback:
+Version 41
+
+Tests:
+12 scenarios
+
+Bạn review.
+
+Sau đó:
+
+Apply
+31. Configuration nên có versioning
+
+Điều này đặc biệt quan trọng với production.
+
+Không:
+
+UPDATE workflow SET ...
+
+Mà:
+
+Workflow v41
+      ↓
+Proposed v42
+      ↓
+Human approved
+      ↓
+Activated v42
+
+Có:
+
+effective_from
+effective_to
+created_by
+approved_by
+change_request_id
+
+Như vậy agent có thể nói:
+
+“Workflow changed from v41 to v42 by request REQ-123.”
+
+Và rollback:
+
+v42 → v41
+32. Tôi cũng khuyến nghị "effective date"
+
+Đây sẽ rất hữu ích cho nhà máy.
+
+Ví dụ:
+
+“Áp dụng guideline mới từ 01/10/2026.”
+
+Agent tạo:
+
+Configuration v52
+
+effective_from:
+2026-10-01 00:00
+
+effective_to:
+NULL
+
+Không cần sửa behavior hiện tại ngay lập tức.
+
+33. Một kiến trúc tổng thể tôi đề xuất
+
+Ở mức logical architecture:
+
+                         ┌─────────────────────┐
+                         │        USERS        │
+                         │                     │
+                         │ Factory User        │
+                         │ System Admin        │
+                         │ AI Supervisor        │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │   Agent Workbench   │
+                         │                     │
+                         │ Request             │
+                         │ Conversation        │
+                         │ Plan                │
+                         │ Approval             │
+                         │ Diff                │
+                         │ Test results        │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                    ┌──────────────────────────────┐
+                    │       AGENT HARNESS          │
+                    │                              │
+                    │ Work Item Manager            │
+                    │ State Machine                │
+                    │ Agent Runtime                 │
+                    │ Policy Engine                 │
+                    │ Approval Manager              │
+                    │ Context Manager               │
+                    │ Artifact Manager              │
+                    │ Audit Manager                 │
+                    │ Retry / Resume               │
+                    └──────────────┬───────────────┘
+                                   │
+                 ┌─────────────────┼──────────────────┐
+                 │                 │                  │
+                 ▼                 ▼                  ▼
+          ┌────────────┐    ┌────────────┐     ┌─────────────┐
+          │ Claude SDK │    │   Skills   │     │  Policies   │
+          │            │    │            │     │             │
+          │ Reasoning  │    │ Procedures │     │ Guardrails  │
+          │ Planning   │    │ Domain     │     │ Risk        │
+          │ Execution  │    │ Knowledge  │     │ Approval    │
+          └─────┬──────┘    └────────────┘     └─────────────┘
+                │
+                ▼
+          ┌───────────────┐
+          │      MCP      │
+          │               │
+          │ Production    │
+          │ Config        │
+          │ Git           │
+          │ CI/CD         │
+          │ Monitoring    │
+          └───────┬───────┘
+                  │
+        ┌─────────┼───────────┐
+        ▼         ▼           ▼
+     Factory    Git/CI      Knowledge
+     System     Platform    /Documents
+34. Tôi sẽ thiết kế database cho Harness riêng
+
+Ví dụ:
+
+agent_work_items
+agent_steps
+agent_messages
+agent_artifacts
+agent_approvals
+agent_tool_calls
+agent_tool_results
+agent_test_runs
+agent_deployments
+agent_audit_events
+agent_checkpoints
+
+Quan trọng nhất là:
+
+agent_checkpoints
+
+Ví dụ:
+
+{
+  "work_item": "REQ-123",
+  "checkpoint": "WAITING_APPROVAL",
+  "state": {
+    "analysis": "...",
+    "plan": "...",
+    "affected_objects": [],
+    "pending_action": "apply_config_v42"
+  }
+}
+
+Khi human approve:
+
+resume(REq-123)
+
+Agent không cần bắt đầu lại từ đầu.
+
+35. Đây cũng là lý do tôi không muốn conversation là state
+
+Không nên:
+
+Claude conversation = workflow state
+
+Mà:
+
+Work Item
+   ↓
+Persistent state
+   ↓
+Claude session/context
+
+Claude session chỉ là execution context.
+
+36. Request có thể chạy hàng giờ hoặc hàng ngày
+
+Ví dụ:
+
+Monday:
+User request
+
+Monday:
+Analysis
+
+Monday:
+Waiting clarification
+
+Tuesday:
+User responds
+
+Tuesday:
+Plan
+
+Tuesday:
+Waiting approval
+
+Wednesday:
+Approved
+
+Wednesday:
+Implementation
+
+Wednesday:
+E2E
+
+Thursday:
+Human acceptance
+
+Architecture phải hỗ trợ long-running asynchronous workflow.
+
+MCP 2026-07-28 cũng đã bổ sung cơ chế Tasks và multi-round-trip cho long-running/interactive workflows, dù tôi vẫn sẽ giữ business workflow state ở Harness thay vì phụ thuộc vào MCP session/task state.
+
+37. Một điểm tôi muốn nhấn mạnh: User và Supervisor có thể là hai người khác nhau
+
+Đây là câu hỏi rất quan trọng đối với hệ thống của bạn.
+
+Ví dụ:
+
+Factory User
+    │
+    │ request
+    ↓
+AI Agent
+    │
+    │ needs decision
+    ↓
+System Owner / AI Supervisor
+    │
+    │ approve
+    ↓
+AI Agent
+
+Điều này khác hoàn toàn:
+
+User
+ ↓
+Agent
+ ↓
+User approves
+
+Trong môi trường doanh nghiệp, bạn có thể muốn:
+
+Requester ≠ Approver
+
+Ví dụ:
+
+Operator
+   ↓
+request change
+
+Production Manager
+   ↓
+business approval
+
+System Administrator
+   ↓
+technical approval
+
+AI Supervisor
+   ↓
+agent execution approval
+
+Đây có thể trở thành một approval workflow của chính Agent Harness.
+
+Với nền tảng workflow mà bạn đang hướng tới, đây là chỗ có thể tận dụng trực tiếp tư duy workflow/approval mà bạn đã có ở PAKD: sequential, parallel, conditional, delegation, escalation, SLA, rework, versioning.
+
+38. Tôi sẽ xây dựng "Agent Governance" ngay từ đầu
+
+Ví dụ:
+
+Agent Governance
+│
+├── Who can submit request?
+├── Who can approve?
+├── What can agent read?
+├── What can agent write?
+├── Which environments?
+├── Which tools?
+├── Which MCP servers?
+├── Which skills?
+├── Which models?
+├── Maximum execution time?
+├── Maximum tool calls?
+├── Maximum cost?
+├── Maximum retries?
+└── When must human intervene?
+
+Đây không còn đơn thuần là AI application.
+
+Nó trở thành:
+
+AI Governance + Workflow + Agent Runtime
+
+39. Tôi cũng muốn có "Agent Policy as Code"
+
+Ví dụ:
+
+policy:
+  name: production-change
+
+rules:
+
+  - when:
+      environment: production
+      operation: configuration.write
+    require:
+      approval:
+        role: system_owner
+
+  - when:
+      environment: production
+      operation: database.write
+    deny: true
+
+  - when:
+      operation: code.merge
+    require:
+      approval:
+        role: developer
+
+  - when:
+      operation: production.deploy
+    require:
+      approvals:
+        - production_manager
+        - system_owner
+
+Điều này tốt hơn rất nhiều so với:
+
+if dangerous:
+    ask human
+
+trong prompt.
+
+40. Một principle tôi đề xuất cho toàn bộ hệ thống
+
+Tôi sẽ dùng 4 mức:
+
+OBSERVE
+   ↓
+PROPOSE
+   ↓
+EXECUTE
+   ↓
+VERIFY
+OBSERVE
+
+AI đọc dữ liệu.
+
+PROPOSE
+
+AI đưa ra:
+
+analysis
+plan
+diff
+configuration
+recommendation
+EXECUTE
+
+AI thực hiện side effect.
+
+VERIFY
+
+AI + deterministic test system kiểm tra kết quả.
+
+Human có thể intervene ở bất kỳ stage nào.
+
+41. Và Human có quyền "take over"
+
+Đây là feature tôi rất muốn có.
+
+Ví dụ agent đang:
+
+EXECUTING
+
+Bạn thấy nó đang đi sai hướng.
+
+Có nút:
+
+TAKE OVER
+
+Sau đó:
+
+Agent execution paused.
+
+Human has taken control.
+
+You can:
+- modify plan
+- edit configuration
+- provide instruction
+- cancel
+- resume agent
+
+Sau đó:
+
+RESUME WITH HUMAN GUIDANCE
+
+Đây chính là human-in-command, chứ không chỉ human-in-loop.
+
+42. Human cũng nên có quyền interrupt
+
+Ví dụ:
+
+Agent:
+Running migration...
+
+Human:
+STOP
+
+Harness:
+
+cancel tool
+↓
+wait for cancellation
+↓
+verify transaction state
+↓
+rollback if necessary
+↓
+mark execution INTERRUPTED
+
+Không nên chỉ kill process.
+
+43. Tôi cũng muốn có "bounded autonomy"
+
+Agent được phép tự chủ trong phạm vi:
+
+Read production data
+        YES
+
+Analyze
+        YES
+
+Create plan
+        YES
+
+Modify isolated branch
+        YES
+
+Run tests
+        YES
+
+Modify production config
+        NO → approval
+
+Merge code
+        NO → approval
+
+Deploy production
+        NO → approval
+
+Delete production data
+        NEVER
+
+Đây là cách tôi nghĩ bạn nên định nghĩa:
+
+Agent autonomy is a configurable capability, not a model behavior.
+
+44. Về Claude SDK
+
+Tôi sẽ dùng Claude Agent SDK như agent execution engine, chứ không dùng Claude Code CLI làm backend chính.
+
+Kiến trúc:
+
+Your Harness
+     │
+     ▼
+Claude Agent SDK
+     │
+     ├── MCP
+     ├── Skills
+     ├── Hooks
+     └── Subagents
+
+SDK hiện hỗ trợ hooks trực tiếp trong application process và cũng có thể sử dụng filesystem-based hooks khi load các project settings phù hợp.
+
+Điều này rất phù hợp với architecture của bạn vì Harness có thể kiểm soát agent programmatically.
+
+45. Tôi sẽ không để Agent tự quyết định "Done"
+
+Một vấn đề rất phổ biến:
+
+Claude:
+"Task completed successfully."
+
+Không có nghĩa là task đã completed.
+
+Thay vào đó:
+
+Agent claims completion
+       ↓
+Harness checks acceptance criteria
+       ↓
+Tests
+       ↓
+Business invariants
+       ↓
+Required artifacts
+       ↓
+Human acceptance
+       ↓
+COMPLETED
+
+Agent chỉ được phép nói:
+
+PROPOSED_COMPLETE
+
+Harness mới quyết định:
+
+COMPLETED
+
+Đây là distinction rất quan trọng.
+
+46. Tôi đề xuất state machine ban đầu
+
+Bạn có thể bắt đầu đơn giản:
+
+NEW
+ │
+ ▼
+TRIAGE
+ │
+ ├── NEED_CLARIFICATION
+ │        │
+ │        └──────┐
+ │               ↓
+ └───────────► ANALYSIS
+                  │
+                  ▼
+                PLAN
+                  │
+                  ▼
+           HUMAN_APPROVAL
+             │          │
+          REJECT      APPROVE
+             │          │
+             ▼          ▼
+          CLOSED     EXECUTION
+                         │
+                         ▼
+                    VALIDATION
+                         │
+                   ┌─────┴─────┐
+                   │           │
+                 FAIL        PASS
+                   │           │
+                   ▼           ▼
+                 REWORK   HUMAN_ACCEPTANCE
+                               │
+                         ┌─────┴─────┐
+                         │           │
+                       ACCEPT      REWORK
+                         │           │
+                         ▼           └──→ EXECUTION
+                     COMPLETED
+
+Sau đó thêm:
+
+CANCELLED
+FAILED
+ROLLBACK
+INTERRUPTED
+47. MVP tôi sẽ không xây tất cả ngay
+
+Nếu tôi triển khai với bạn, tôi sẽ chia thành 4 phase.
+
+Phase 1 — Read-only Agent
+
+Chỉ:
+
+User request
+ ↓
+Claude
+ ↓
+MCP
+ ↓
+Production system
+ ↓
+Answer
+
+Mục tiêu:
+
+MCP architecture
+context
+Skills
+Harness
+logging
+audit
+conversation
+request state
+
+Không write.
+
+Phase 2 — Proposal
+
+Thêm:
+
+Agent
+ ↓
+Analysis
+ ↓
+Plan
+ ↓
+Change proposal
+ ↓
+Human review
+
+Ví dụ:
+
+configuration diff
+code diff
+test plan
+
+Chưa execute production.
+
+Phase 3 — Controlled Execution
+
+Thêm:
+
+Approval
+ ↓
+Execution
+ ↓
+Validation
+ ↓
+Human acceptance
+
+Nhưng chỉ:
+
+configuration
++
+non-production
+Phase 4 — Production Operations
+
+Sau khi framework ổn:
+
+Production configuration
+Production deployment
+Production incident
+Production rollback
+
+với governance đầy đủ.
+
+48. Tôi nghĩ request model của bạn cuối cùng sẽ rất mạnh
+
+Ví dụ:
+
+Request
+│
+├── Identity
+│
+├── Objective
+│
+├── Scope
+│
+├── Context
+│
+├── Constraints
+│
+├── Clarifications
+│
+├── Requirements
+│
+├── Acceptance Criteria
+│
+├── Plan
+│
+├── Risk Assessment
+│
+├── Proposed Changes
+│
+├── Approvals
+│
+├── Execution
+│
+├── Validation
+│
+├── Evidence
+│
+├── Artifacts
+│
+└── Audit Trail
+
+Đây chính là AI Change Request / AI Work Item.
+
+Và tôi nghĩ nó sẽ trở thành abstraction quan trọng nhất của hệ thống.
+
+49. Một điều tôi chưa muốn chốt: "user request" của bạn thực sự rộng đến đâu?
+
+Đây là chỗ tôi cần bạn cung cấp thêm thông tin trước khi chúng ta đi sâu vào implementation architecture.
+
+Tôi có một số câu hỏi rất quan trọng. Bạn không cần trả lời bằng văn phong formal; chỉ cần trả lời từng số.
+
+A. Về người sử dụng
+
+1. “User” ở đây là ai?
+
+Ví dụ:
+
+A. Factory operator
+B. Production manager
+C. QA/QC
+D. IT/System admin
+E. Business admin
+F. Developer
+G. Tất cả các nhóm trên
+
+Và bạn là người supervisor duy nhất hay có nhiều supervisor?
+
+B. Về hệ thống hiện tại
+
+2. Production management system hiện tại của bạn là:
+
+A. Monolith
+B. Microservices
+C. ERP/MES mua ngoài
+D. Hệ thống tự phát triển
+E. Kết hợp nhiều hệ thống
+
+Và agent sẽ access nó qua:
+
+REST API
+SOAP
+Database
+Message queue
+File
+CLI
+
+hay kết hợp?
+
+C. Về codebase
+
+3. Khi user yêu cầu:
+
+“Change codebase”
+
+thì codebase là code của chính production management system?
+
+Repo nằm ở:
+
+GitHub
+GitLab
+Bitbucket
+Azure DevOps
+self-hosted Git
+
+và hiện tại có CI/CD chưa?
+
+D. Về deployment
+
+4. Production deployment hiện tại được thực hiện thế nào?
+
+Ví dụ:
+
+Developer → manually deploy
+CI/CD → staging → production
+Docker
+Kubernetes
+VM
+bare metal
+
+Đây rất quan trọng vì nó quyết định mức autonomy mà agent có thể có.
+
+E. Về human-in-loop
+
+5. Bạn muốn mọi thay đổi production đều phải do bạn approve, hay muốn policy kiểu:
+
+LOW risk
+→ AI tự làm
+
+MEDIUM
+→ AI prepare → human approve
+
+HIGH
+→ multiple approvals
+
+CRITICAL
+→ human only
+
+Tôi nghiêng về mô hình thứ hai, nhưng muốn biết requirement thật của bạn.
+
+F. Về contact với user
+
+6. Khi agent cần clarification, bạn muốn nó contact user qua đâu?
+
+A. Web UI của Agent Workbench
+B. Chat
+C. Microsoft Teams
+D. Slack
+E. Email
+F. Trong chính production system
+G. Kết hợp
+
+Ví dụ agent có thể:
+
+“Tôi cần user A xác nhận thông tin X.”
+
+và Harness tạo task cho user đó?
+
+G. Về production data
+
+7. Agent có được đọc real production data không?
+
+Ví dụ:
+
+production orders
+inventory
+machine status
+employee information
+customer information
+quality records
+
+Nếu có, có dữ liệu nào thuộc loại nhạy cảm mà agent không được phép xem không?
+
+H. Về code execution
+
+8. Agent có được phép:
+
+git clone
+git checkout
+edit files
+run shell commands
+install dependencies
+run Docker
+run tests
+start services
+
+không?
+
+Đặc biệt:
+
+Agent có được chạy arbitrary shell command không, hay bạn muốn tất cả capability đều đi qua MCP?
+
+I. Về environment
+
+9. Bạn có các environment:
+
+DEV
+TEST
+UAT
+STAGING
+PRODUCTION
+
+hay cấu trúc khác?
+
+Agent có quyền tự động từ DEV → TEST → UAT không?
+
+J. Về rollback
+
+10. Production configuration và code hiện tại đã có:
+
+versioning
+rollback
+database migration rollback
+configuration history
+audit log
+
+chưa?
+
+K. Về scope dài hạn
+
+11. Bạn muốn hệ thống này chủ yếu là:
+
+A. AI operator cho production system
+
+hay:
+
+B. AI software engineer + production operator
+
+hay:
+
+C. Một general-purpose enterprise agent platform, trong đó production management chỉ là domain đầu tiên?
+
+Câu này rất quan trọng vì C sẽ làm architecture khác đáng kể so với A.
+
+L. Một câu hỏi cuối cùng nhưng rất quan trọng
+
+12. Khi bạn nói:
+
+“tôi vẫn phải là người ra quyết định”
+
+thì ý bạn là:
+
+A. Tôi muốn review từng business decision quan trọng.
+
+B. Tôi muốn review mọi change có side effect.
+
+C. Tôi muốn có quyền intervene bất kỳ lúc nào nhưng không nhất thiết approve từng bước.
+
+D. Kết hợp A+B+C.
+
+Đề xuất của tôi ở thời điểm hiện tại
+
+Với những gì bạn đã mô tả, tôi chưa khuyên bạn bắt đầu bằng việc viết Claude prompt/Skills/MCP server ngay.
+
+Tôi sẽ thiết kế theo thứ tự:
+
+1. Define Work Item
+        ↓
+2. Define lifecycle/state machine
+        ↓
+3. Define human interaction model
+        ↓
+4. Define risk + approval policy
+        ↓
+5. Define capability model
+        ↓
+6. Define MCP boundaries
+        ↓
+7. Define Agent Harness
+        ↓
+8. Define Skills
+        ↓
+9. Integrate Claude Agent SDK
+        ↓
+10. Implement actual agents
+
+Nếu làm ngược lại:
+
+Claude
+→ MCP
+→ Skills
+→ prompt
+→ somehow approval
+
+rất dễ kết thúc bằng một “Claude chatbot có quyền điều khiển production system”.
+
+Còn nếu đi theo hướng trên, thứ bạn đang xây thực chất sẽ là:
+
+một AI-controlled but human-governed operational platform, trong đó Claude là reasoning engine chứ không phải authority.
+
+Đây cũng là hướng phù hợp với MCP hiện tại: MCP cung cấp chuẩn kết nối capability/context, còn application của bạn vẫn nên chịu trách nhiệm về authorization, lifecycle và governance. MCP specification mới đã đặc biệt chú trọng authorization và các interaction nhiều vòng, nhưng không biến MCP thành business workflow engine.
+
+Bạn hãy trả lời 12 câu trên. Sau đó tôi có thể đi tiếp vào level chi tiết hơn: kiến trúc production cụ thể của Agent Harness (services, database schema, state machine, Claude Agent SDK integration, MCP architecture, Skills structure, approval engine, policy engine, checkpoint/resume, audit, subagents, E2E execution và cách một request chạy end-to-end).
+
+Có. Và sau khi nhìn lại danh sách bạn đưa, tôi thay đổi recommendation trước đó: với architecture của bạn, tôi nghĩ chúng ta nên nghiêm túc xem Temporal là ứng viên số 1 cho lớp Agent Harness / Durable Workflow Runtime.
+
+Điểm quan trọng là phân biệt:
+
+Agent framework ≠ Workflow/Durable Execution Runtime
+
+Với hệ thống của bạn, phần khó nhất về lâu dài không phải "gọi Claude", mà là một Work Item có thể chạy nhiều giờ/ngày, chờ user, retry, crash/restart, quay lại đúng phase, giữ audit trail và không chạy một side-effect hai lần.
+
+1. Tôi sẽ thay đổi architecture thành 3 lớp
+
+Tôi đề xuất:
+
+                         HUMAN
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │ Agent Workbench │
+                  └────────┬────────┘
+                           │
+                           ▼
+              ┌──────────────────────────┐
+              │     AGENT HARNESS        │
+              │                          │
+              │     Temporal             │
+              │                          │
+              │ Workflow                 │
+              │ State                    │
+              │ Checkpoint               │
+              │ Retry                    │
+              │ Timer                    │
+              │ Signal / Human Approval  │
+              │ Recovery                 │
+              │ Audit                    │
+              └────────────┬─────────────┘
+                           │
+                    invokes activities
+                           │
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+    Analyze Agent      Plan Agent      Develop Agent
+          │                │                │
+          ▼                ▼                ▼
+    Claude Agent SDK / Claude runtime
+          │                │                │
+          ▼                ▼                ▼
+                         MCP
+                          │
+        ┌─────────────────┼──────────────────┐
+        ▼                 ▼                  ▼
+      GitHub              DEV              TEST
+
+Sau đó:
+
+Temporal
+   │
+   ├── Analyze Activity
+   ├── Analyze Review Activity
+   ├── Plan Activity
+   ├── Plan Review Activity
+   ├── Develop Activity
+   ├── Develop Review Activity
+   ├── Test Activity
+   ├── Test Review Activity
+   ├── Deploy Activity
+   └── Production Verification Activity
+
+Đây là architecture tôi thấy rất hợp với bài toán của bạn.
+
+2. Tại sao Temporal đặc biệt phù hợp?
+
+Temporal không cố trở thành "AI framework".
+
+Nó giải quyết một vấn đề khác:
+
+Làm thế nào để một workflow dài và phức tạp tiếp tục đúng trạng thái dù process/server/worker/API bị crash?
+
+Temporal lưu workflow state/history và có thể tiếp tục workflow từ nơi đã đạt tới sau failure. Đây chính là cơ chế Durable Execution mà Temporal cung cấp.
+
+Ví dụ workflow của bạn:
+
+REQ-123
+   │
+   ▼
+ANALYZE
+   │
+   ▼
+ANALYZE_REVIEW
+   │
+   ▼
+PLAN
+   │
+   ▼
+PLAN_REVIEW
+   │
+   ▼
+WAIT HUMAN
+
+User có thể không approve trong:
+
+5 phút
+
+hoặc:
+
+2 ngày
+
+hoặc:
+
+2 tuần
+
+Workflow không cần giữ một Python process sống liên tục.
+
+Khi human approve:
+
+Human
+  │
+  ▼
+Signal / Update
+  │
+  ▼
+Temporal
+  │
+  ▼
+resume workflow
+  │
+  ▼
+DEVELOP
+
+Đây là một capability cực kỳ quan trọng cho hệ thống của bạn.
+
+3. Và đây là điểm tôi thích nhất: Agent không phải Workflow
+
+Ví dụ:
+
+Analyze Agent
+
+chỉ cần biết:
+
+"Analyze requirement này."
+
+Nó không cần biết:
+
+Sau tôi là Plan Agent.
+Nếu review fail thì quay lại đâu.
+Human approval ở đâu.
+Workflow timeout bao lâu.
+Server crash thì sao.
+
+Temporal/Harness biết những thứ đó.
+
+┌─────────────────────────────┐
+│          TEMPORAL           │
+│                             │
+│ Analyze                     │
+│    ↓                        │
+│ Analyze Review              │
+│    ↓                        │
+│ Plan                        │
+│    ↓                        │
+│ Plan Review                 │
+│    ↓                        │
+│ Human Approval              │
+│    ↓                        │
+│ Develop                     │
+└──────────────┬──────────────┘
+               │
+               ▼
+        ┌──────────────┐
+        │ Claude Agent │
+        └──────────────┘
+
+Đây là separation rất sạch.
+
+4. Temporal + Claude Agent SDK
+
+Có một điểm cần làm rõ.
+
+Temporal không cần native Claude integration để phù hợp với bạn.
+
+Bạn có thể coi Claude Agent SDK là một activity/runtime được gọi bởi Temporal.
+
+Ví dụ conceptual:
+
+Temporal Workflow
+       │
+       ▼
+Analyze Activity
+       │
+       ▼
+Claude Agent SDK
+       │
+       ├── Skills
+       ├── MCP
+       ├── Tools
+       └── Claude
+       │
+       ▼
+Analysis Result
+       │
+       ▼
+Temporal
+
+Temporal hiện cũng định vị mình là durable execution layer có thể đứng dưới nhiều agent frameworks, thay vì buộc bạn dùng một agent framework duy nhất.
+
+5. Có một architecture còn hay hơn
+
+Tôi nghĩ chúng ta nên dùng:
+
+Temporal
+    +
+Claude Agent SDK
+    +
+MCP
+    +
+Skills
+
+chứ không phải:
+
+Temporal
+    +
+LangGraph
+    +
+Claude Agent SDK
+    +
+MCP
+
+trừ khi LangGraph thực sự cần thiết.
+
+Lý do:
+
+Temporal
+
+giải quyết:
+
+WHEN / WHERE / HOW LONG
+Claude Agent SDK
+
+giải quyết:
+
+HOW AI THINKS AND ACTS
+MCP
+
+giải quyết:
+
+WHAT AI CAN ACCESS
+Skills
+
+giải quyết:
+
+HOW AI PERFORMS A CAPABILITY
+
+Đây là decomposition rất sạch.
+
+6. Pydantic AI + Temporal thì sao?
+
+Đây là ứng viên tôi đánh giá rất đáng chú ý, đặc biệt nếu backend của bạn viết Python.
+
+Pydantic AI hiện đã có integration chính thức với Temporal cho durable execution. TemporalDurability có thể route model requests, tool calls và MCP communication qua Temporal activities.
+
+Architecture sẽ thành:
+
+Temporal
+    │
+    ▼
+Pydantic AI
+    │
+    ▼
+Agent
+    │
+    ▼
+Model / MCP / Tools
+
+Pydantic AI hiện công bố hỗ trợ durable execution với Temporal, DBOS, Prefect, Restate và AWS Lambda durable functions.
+
+Nhưng đối với bạn:
+
+Nếu bạn đã xác định:
+
+Claude Agent SDK là agent runtime
+
+thì tôi không muốn thêm Pydantic AI chỉ để có agent abstraction.
+
+Bạn sẽ có:
+
+Temporal
+   ↓
+Pydantic AI
+   ↓
+Claude Agent SDK
+
+Quá nhiều abstraction.
+
+Tôi thích:
+
+Temporal
+   ↓
+Claude Agent SDK
+
+hơn.
+
+7. LangGraph thì sao?
+
+LangGraph vẫn rất mạnh.
+
+Nếu workflow của bạn chủ yếu là:
+
+Agent A
+   ↓
+Agent B
+   ↓
+Agent C
+   ↓
+conditional branch
+   ↓
+Agent D
+
+thì LangGraph rất tự nhiên.
+
+Nhưng workflow của bạn có thêm:
+
+Human approval
+Days of waiting
+Production approval
+Retry
+Deployment
+External systems
+GitHub
+CI/CD
+Audit
+Long-running work
+Crash recovery
+
+Đây bắt đầu giống business process / distributed workflow hơn là chỉ agent graph.
+
+Vì vậy tôi sẽ đặt:
+
+Temporal > LangGraph
+
+cho Harness layer của riêng bài toán này.
+
+Không phải LangGraph kém; mà vì abstraction của Temporal gần với problem hơn.
+
+8. Restate là ứng viên tôi cũng sẽ giữ
+
+Restate rất thú vị nếu bạn muốn một runtime nhẹ hơn Temporal.
+
+Concept:
+
+HTTP request
+     ↓
+Restate
+     ↓
+Durable function
+     ↓
+Claude Agent
+
+Nó có durable promises/awakeables và mô hình khá phù hợp với asynchronous workflows.
+
+Tuy nhiên, đối với hệ thống enterprise internal + manufacturing management + long-lived workflow + audit + approval, tôi hiện nghiêng về Temporal vì ecosystem và mental model của nó phù hợp hơn với một workflow engine trung tâm.
+
+9. DBOS đặc biệt đáng chú ý với hệ thống của bạn
+
+Có một điểm trong danh sách của bạn tôi nghĩ cần chú ý:
+
+DBOS
+
+DBOS dùng PostgreSQL làm nền cho durable workflow state.
+
+Điều này rất hấp dẫn nếu architecture của bạn đã muốn:
+
+PostgreSQL
+
+làm persistent store.
+
+Bạn có thể có:
+
+PostgreSQL
+├── Work Items
+├── Agent state
+├── Approvals
+├── Audit
+├── Artifacts metadata
+└── Workflow state
+
+Nhưng tôi vẫn sẽ thử Temporal trước.
+
+Lý do đơn giản:
+
+Temporal là một workflow engine trước, còn DBOS tạo durable execution trên database abstraction.
+
+Với hệ thống này, workflow engine là core concern.
+
+10. Dapr Workflows?
+
+Tôi sẽ không chọn Dapr ở thời điểm này.
+
+Dapr rất tốt nếu bạn đang xây:
+
+Distributed microservices
++
+Dapr ecosystem
++
+Service invocation
++
+Pub/Sub
++
+State store
++
+Workflows
+
+Nhưng hiện tại bạn chưa cần toàn bộ Dapr ecosystem.
+
+Thêm Dapr có thể khiến architecture trở nên:
+
+Agent
+  ↓
+Harness
+  ↓
+Dapr
+  ↓
+Temporal-like workflow
+  ↓
+Services
+
+không cần thiết.
+
+11. Inngest / Trigger.dev / Mastra?
+
+Tôi sẽ đặt chúng thấp hơn cho use case hiện tại.
+
+Không phải vì chúng không tốt.
+
+Mà vì architecture của bạn là:
+
+Enterprise
++
+long-running
++
+human approval
++
+production changes
++
+strict audit
++
+multi-phase
++
+self-hosted considerations
+
+Trong khi Inngest / Trigger.dev / Mastra rất hấp dẫn nếu bạn đang xây:
+
+Web application
++
+TypeScript
++
+serverless
++
+event-driven jobs
++
+AI workflows
+
+Nếu stack của bạn sau này chuyển mạnh sang TypeScript/serverless thì chúng đáng xem lại.
+
+12. Có một vấn đề rất quan trọng: Claude Agent SDK và Temporal
+
+Đây là chỗ tôi muốn bạn đặc biệt lưu ý.
+
+Temporal workflow phải tuân theo deterministic execution.
+
+Không nên làm:
+
+Temporal Workflow
+    │
+    ├── gọi network trực tiếp
+    ├── gọi Claude trực tiếp
+    ├── đọc filesystem
+    ├── gọi GitHub
+    └── gọi database
+
+Thay vào đó:
+
+Temporal Workflow
+       │
+       ├── Activity → Claude
+       ├── Activity → GitHub
+       ├── Activity → CI
+       ├── Activity → MCP
+       └── Activity → DEV
+
+Đây chính là model mà các integration durable-agent hiện tại cũng áp dụng: phần deterministic nằm trong workflow, còn model/tool/MCP I/O được đưa vào activities.
+
+13. Và điều này rất hợp với permission model của bạn
+
+Ví dụ:
+
+Temporal Workflow
+       │
+       ▼
+Develop Activity
+       │
+       ▼
+Claude Agent SDK
+       │
+       ▼
+DEV MCP
+
+Develop Agent có permission:
+
+DEV:
+    read
+    write
+    build
+    test
+
+PRODUCTION:
+    none
+
+Sau đó:
+
+Production Approval
+       │
+       ▼
+Temporal Signal
+       │
+       ▼
+Production Deployment Activity
+       │
+       ▼
+Controlled Production Service
+
+Như vậy permission không nằm trong prompt.
+
+Nó nằm ở Harness + infrastructure.
+
+Đây là điều tôi rất muốn giữ.
+
+14. Workflow của bạn sẽ trở nên cực kỳ rõ ràng
+
+Ví dụ conceptual Temporal workflow:
+
+WorkItemWorkflow
+│
+├── analyze()
+│
+├── review_analyze()
+│
+│   └── if REJECT → analyze()
+│
+├── plan()
+│
+├── review_plan()
+│
+│   └── if REJECT → plan()
+│
+├── wait_for_human_plan_approval()
+│
+├── develop()
+│
+├── review_develop()
+│
+│   └── if REJECT → develop()
+│
+├── test()
+│
+├── review_test()
+│
+│   └── if REJECT → develop() / test()
+│
+├── wait_for_human_production_approval()
+│
+├── deploy()
+│
+├── production_verify()
+│
+└── wait_for_human_final_acceptance()
+
+Đây chính là business workflow.
+
+15. Một điểm còn quan trọng hơn: Review Agent cũng trở thành Activity
+
+Ví dụ:
+
+Temporal
+   │
+   ▼
+Develop Activity
+   │
+   ▼
+Develop Agent
+   │
+   ▼
+Develop Result
+   │
+   ▼
+Develop Review Activity
+   │
+   ▼
+Develop Review Agent
+   │
+   ▼
+Review Result
+
+Nếu Review Agent nói:
+
+{
+  "status": "REJECT",
+  "issues": [
+    "Acceptance criterion AC-03 is not covered"
+  ]
+}
+
+Temporal có thể quyết định:
+
+REJECT
+  ↓
+DEVELOP again
+
+Không cần một process controller tự viết bằng tay.
+
+16. Human approval cũng rất tự nhiên
+
+Ví dụ:
+
+Plan Review
+     │
+     ▼
+PASS
+     │
+     ▼
+WAITING_FOR_HUMAN
+     │
+     │
+     │     2 days later
+     │
+     ▼
+Human approves
+     │
+     ▼
+Temporal Signal
+     │
+     ▼
+Develop
+
+Đây là một trong những lý do tôi đánh giá cao durable workflow runtime cho architecture của bạn.
+
+17. Nhưng Temporal có một trade-off lớn
+
+Không nên bỏ qua.
+
+Temporal khó hơn LangGraph.
+
+Bạn phải hiểu:
+
+Workflow
+Activity
+Worker
+Task Queue
+Event History
+Replay
+Determinism
+Retry
+Signals
+Queries
+Updates
+Workflow Versioning
+
+Đặc biệt:
+
+Workflow code không được tùy tiện làm I/O hoặc non-deterministic work.
+
+Đây là mental model khác hẳn một Python application bình thường. Pydantic AI cũng nhấn mạnh workflow phải deterministic và external I/O phải chạy qua activities khi tích hợp Temporal.
+
+Nhưng đổi lại, bạn có một nền tảng rất mạnh cho production.
+
+18. Tôi sẽ xếp các lựa chọn cho architecture của bạn như thế này
+
+Không phải ranking "framework nào tốt nhất" nói chung, mà là mức độ phù hợp với kiến trúc bạn đang thiết kế:
+
+                    YOUR USE CASE
+
+                         │
+                         ▼
+
+              ┌─────────────────────┐
+              │      TEMPORAL       │
+              │ Durable Workflow    │
+              │ + Claude SDK        │
+              └─────────────────────┘
+                         ▲
+                         │
+                     PRIMARY
+
+              ┌─────────────────────┐
+              │     LANGGRAPH       │
+              │ Agent Workflow      │
+              └─────────────────────┘
+                         ▲
+                         │
+                    ALTERNATIVE
+
+              ┌─────────────────────┐
+              │       DBOS          │
+              │ Postgres Durable    │
+              └─────────────────────┘
+                         ▲
+                         │
+                    ALTERNATIVE
+
+              ┌─────────────────────┐
+              │      RESTATE        │
+              │ Durable Functions   │
+              └─────────────────────┘
+                         ▲
+                         │
+                    ALTERNATIVE
+
+              ┌─────────────────────┐
+              │ Microsoft Agent     │
+              │ Framework           │
+              └─────────────────────┘
+
+Tôi không còn đặt Microsoft Agent Framework ở vị trí đầu tiên sau khi xem kỹ hơn vấn đề của bạn.
+
+19. Architecture tôi đề xuất chốt để tiếp tục nghiên cứu
+
+Tôi sẽ dùng:
+
+┌──────────────────────────────────────────────┐
+│                AGENT WORKBENCH               │
+└───────────────────────┬──────────────────────┘
+                        │
+                        ▼
+┌──────────────────────────────────────────────┐
+│                  HARNESS                     │
+│                                              │
+│                  TEMPORAL                    │
+│                                              │
+│ Workflow / State / Retry / Timer             │
+│ Signal / Human Approval / Recovery           │
+│ Audit / Workflow History                    │
+└───────────────────────┬──────────────────────┘
+                        │
+                        ▼
+┌──────────────────────────────────────────────┐
+│              AGENT RUNTIME                   │
+│                                              │
+│              CLAUDE AGENT SDK                │
+└───────────────────────┬──────────────────────┘
+                        │
+             ┌──────────┴──────────┐
+             ▼                     ▼
+          Skills                  MCP
+             │                     │
+             │          ┌──────────┼───────────┐
+             │          ▼          ▼           ▼
+             │       GitHub       DEV       Production
+             │                                  │
+             │                              READ ONLY
+             │
+             ▼
+       Agent-specific
+       capabilities
+
+Và phase agents:
+
+Temporal Workflow
+       │
+       ├── Analyze Agent
+       │       └── Analyze Review Agent
+       │
+       ├── Plan Agent
+       │       └── Plan Review Agent
+       │
+       ├── Develop Agent
+       │       └── Develop Review Agent
+       │
+       ├── Test Agent
+       │       └── Test Review Agent
+       │
+       ├── Deploy Agent
+       │       └── Deploy Review Agent
+       │
+       └── Production Agent
+               └── Production Review Agent
+Một điều tôi đặc biệt khuyên bạn
+
+Đừng bắt đầu bằng việc implement toàn bộ.
+
+Hãy làm một technical spike rất nhỏ:
+
+REQUEST
+   ↓
+Analyze Agent
+   ↓
+Analyze Review Agent
+   ↓
+Human Approval
+   ↓
+Plan Agent
+   ↓
+Plan Review Agent
+   ↓
+DONE
+
+chạy trên:
+
+Temporal + Python + Claude Agent SDK
+
+và test 4 tình huống:
+
+1. Agent chạy bình thường
+2. Worker crash giữa Analyze
+3. Review reject → quay lại Analyze
+4. Workflow dừng chờ Human 24h → approve → resume
+
+Nếu 4 case này hoạt động tốt, Temporal gần như đã chứng minh được rằng nó phù hợp với lớp Harness của architecture này.
+
+Một điểm nữa: Temporal hiện có cơ chế external storage/claim-check đang được phát triển để tránh nhồi payload lớn vào event history. Đây đáng lưu ý vì Work Item của bạn có thể chứa Git diff, test output, logs, screenshots và artifacts lớn; những thứ đó không nên nhét trực tiếp vào workflow history, mà nên lưu object/file storage và Temporal chỉ giữ reference.
+
+Vì vậy, nếu tiếp tục từ đây, tôi sẽ xem architecture target là Temporal + Claude Agent SDK + MCP + Skills, rồi mới thiết kế chi tiết WorkItemWorkflow, Agent Activity, Review Activity, Human Approval, Artifact Store và State/Contract cho từng phase.
+
+tôi nghĩ trước hết hãy thử nghiệm với temporal trước. bạn hãy miêu tả chi tiết các step by step cần thực hiện 
+
+Đúng. Tôi nghĩ Temporal nên được thử nghiệm độc lập trước, chưa cần đưa Claude Agent SDK, MCP hay toàn bộ Agent Workbench vào ngay.
+
+Mục tiêu của PoC nên là chứng minh một việc:
+
+Temporal có thể làm "durable orchestration layer" cho workflow AI nhiều phase, có Review Agent, Human Approval, retry và recovery sau crash hay không.
+
+Tôi đề xuất PoC theo 8 bước, tăng dần độ phức tạp.
+
+1. Scope của Temporal PoC
+
+Đừng bắt đầu bằng workflow đầy đủ:
+
+Analyze
+→ Review
+→ Plan
+→ Review
+→ Human
+→ Develop
+→ Review
+→ Test
+→ ...
+
+Hãy bắt đầu bằng:
+
+REQUEST
+   ↓
+ANALYZE
+   ↓
+ANALYZE REVIEW
+   ↓
+PLAN
+   ↓
+HUMAN APPROVAL
+   ↓
+COMPLETED
+
+Sau đó mới thêm:
+
+retry
+crash recovery
+multiple agents
+Claude
+MCP
+2. Target architecture của PoC
+                        ┌──────────────┐
+                        │   Your PC    │
+                        │              │
+                        │ Python       │
+                        │ Temporal SDK │
+                        └──────┬───────┘
+                               │
+                               │
+                       Temporal Client
+                               │
+                               ▼
+                     ┌──────────────────┐
+                     │ Temporal Server  │
+                     │                  │
+                     │ Workflow State   │
+                     │ Event History    │
+                     │ Timers           │
+                     │ Signals          │
+                     └────────┬─────────┘
+                              │
+                         Task Queue
+                              │
+                              ▼
+                     ┌──────────────────┐
+                     │ Temporal Worker  │
+                     │                  │
+                     │ Python           │
+                     │                  │
+                     │ Activities       │
+                     └────────┬─────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+               Analyze              Review
+               Activity             Activity
+
+Ở PoC đầu tiên:
+
+chưa cần Claude.
+
+Agent chỉ là Python function giả lập.
+
+Ví dụ:
+
+analyze_activity()
+review_activity()
+plan_activity()
+3. Step 1 — Chuẩn bị environment
+
+Vì bạn đang phát triển trên Windows, tôi khuyên dùng:
+
+Windows
+   │
+   ├── Python virtual environment
+   │
+   └── Docker Desktop
+          │
+          └── Temporal Server
+
+Không cần cài Temporal Server trực tiếp vào Windows.
+
+Directory:
+
+temporal-poc/
+│
+├── .venv/
+│
+├── app/
+│   ├── workflows.py
+│   ├── activities.py
+│   └── worker.py
+│
+├── start.py
+├── requirements.txt
+└── docker-compose.yml
+4. Step 2 — Chạy Temporal Server
+
+Temporal cung cấp Docker-based development setup.
+
+Mục tiêu:
+
+Docker
+  │
+  ▼
+Temporal Server
+  │
+  ├── Temporal frontend
+  ├── persistence
+  └── UI
+
+Sau khi chạy, kiểm tra Temporal UI.
+
+PoC không cần database production riêng.
+
+Có thể bắt đầu bằng development environment.
+
+Mục tiêu của bước này chỉ là:
+
+Temporal Server = RUNNING
+Temporal UI    = ACCESSIBLE
+5. Step 3 — Tạo Python Temporal Worker
+
+Cài Temporal Python SDK trong virtual environment.
+
+Concept:
+
+Worker
+│
+├── register Workflow
+│
+└── register Activities
+
+Ví dụ:
+
+worker = Worker(
+    client,
+    task_queue="agent-poc",
+    workflows=[AgentWorkflow],
+    activities=[
+        analyze,
+        review,
+        plan,
+    ],
+)
+
+Điểm cần hiểu:
+
+Worker không phải Workflow Server.
+
+Worker chỉ là process thực thi các task.
+
+Temporal Server mới là nơi giữ workflow execution state.
+
+6. Step 4 — Tạo Workflow đầu tiên
+
+Workflow cực kỳ đơn giản:
+
+AgentWorkflow
+    │
+    ▼
+Analyze
+    │
+    ▼
+Review
+    │
+    ▼
+Plan
+    │
+    ▼
+Complete
+
+Conceptual code:
+
+@workflow.defn
+class AgentWorkflow:
+
+    @workflow.run
+    async def run(self, request):
+
+        analysis = await workflow.execute_activity(
+            analyze,
+            request,
+            ...
+        )
+
+        review = await workflow.execute_activity(
+            review_analysis,
+            analysis,
+            ...
+        )
+
+        plan = await workflow.execute_activity(
+            create_plan,
+            analysis,
+            ...
+        )
+
+        return plan
+
+Ở bước này:
+
+Analyze
+Review
+Plan
+
+chỉ là function bình thường.
+
+Không có AI.
+
+7. Step 5 — Hiểu Activity
+
+Đây là concept quan trọng nhất của Temporal.
+
+Workflow:
+
+"What should happen?"
+
+Activity:
+
+"Do the actual work."
+
+Ví dụ:
+
+Workflow
+    │
+    ├── analyze()
+    │
+    ├── review()
+    │
+    └── plan()
+
+analyze() có thể:
+
+@activity.defn
+async def analyze(request):
+    ...
+
+Sau này nó sẽ trở thành:
+
+Analyze Activity
+       │
+       ▼
+Claude Agent SDK
+       │
+       ▼
+Claude
+
+Còn hiện tại:
+
+Analyze Activity
+       │
+       ▼
+Fake analysis
+8. Step 6 — Test Retry
+
+Đây là test đầu tiên tôi rất muốn bạn thực hiện.
+
+Cho Analyze Activity cố tình fail:
+
+Attempt 1
+   ↓
+ERROR
+   ↓
+Temporal retry
+   ↓
+Attempt 2
+   ↓
+SUCCESS
+
+Ví dụ:
+
+@activity.defn
+async def analyze(request):
+    if first_attempt:
+        raise RuntimeError("simulated failure")
+
+    return analysis
+
+Workflow:
+
+ANALYZE
+  │
+  ├── attempt 1 → FAIL
+  │
+  └── attempt 2 → PASS
+          │
+          ▼
+      REVIEW
+
+Bạn cần quan sát Temporal UI để thấy retry history.
+
+Mục tiêu
+
+Chứng minh:
+
+Worker không cần tự viết retry loop.
+
+Temporal đảm nhận retry.
+
+9. Step 7 — Test Worker Crash
+
+Đây là test quan trọng hơn retry.
+
+Workflow:
+
+ANALYZE
+   ↓
+REVIEW
+   ↓
+PLAN
+
+Trong lúc workflow đang chạy:
+
+kill Worker
+
+Ví dụ:
+
+Temporal Server
+       │
+       │
+       X
+   Worker crash
+
+Sau đó start Worker lại.
+
+Worker
+   │
+   ▼
+Temporal Server
+   │
+   ▼
+continue workflow
+
+Mục tiêu:
+
+Before crash:
+
+ANALYZE = PASS
+REVIEW  = PASS
+
+Worker dies
+
+After restart:
+
+PLAN continues
+
+Nếu case này hoạt động đúng, bạn đã chứng minh được durable execution ở mức rất cơ bản.
+
+10. Step 8 — Human Approval
+
+Đây mới là điểm rất quan trọng đối với architecture của bạn.
+
+Workflow:
+
+REQUEST
+   ↓
+ANALYZE
+   ↓
+REVIEW
+   ↓
+PLAN
+   ↓
+WAITING_FOR_HUMAN
+
+Workflow không được terminate.
+
+Nó phải ở trạng thái:
+
+WAITING_FOR_APPROVAL
+
+Human sau đó:
+
+Agent Workbench
+      │
+      ▼
+Approve
+      │
+      ▼
+Temporal Signal / Update
+      │
+      ▼
+Workflow resumes
+      │
+      ▼
+COMPLETED
+11. Test Human Approval sau 24 giờ
+
+Không nhất thiết phải thật sự chờ 24 giờ trong PoC.
+
+Nhưng architecture phải hỗ trợ:
+
+10:00
+ │
+ ▼
+WAITING_FOR_HUMAN
+ │
+ │
+ │   Worker có thể restart
+ │
+ │   Server có thể restart
+ │
+ │
+14:00
+ │
+ ▼
+Human Approve
+ │
+ ▼
+Workflow resumes
+
+Đây là một test cực kỳ quan trọng.
+
+Bạn cần chứng minh:
+
+Workflow không phụ thuộc vào process memory để giữ trạng thái chờ human.
+
+12. Sau đó test REJECT
+
+Workflow:
+
+ANALYZE
+   ↓
+REVIEW
+   ↓
+REJECT
+   ↓
+ANALYZE AGAIN
+
+Ví dụ:
+
+Analyze #1
+     ↓
+Review
+     ↓
+REJECT
+     ↓
+Analyze #2
+     ↓
+Review
+     ↓
+PASS
+     ↓
+Plan
+
+Temporal phải lưu được history của cả hai vòng.
+
+13. Sau đó mới thêm Claude Agent SDK
+
+Khi các test trên pass, architecture chuyển từ:
+
+Temporal
+   ↓
+Python Activity
+
+thành:
+
+Temporal
+   ↓
+Analyze Activity
+   ↓
+Claude Agent SDK
+   ↓
+Claude
+
+Ví dụ:
+
+AnalyzeWorkflow
+      │
+      ▼
+AnalyzeActivity
+      │
+      ▼
+Claude Agent SDK
+      │
+      ├── Skills
+      ├── MCP
+      └── Claude
+      │
+      ▼
+Analysis Artifact
+
+Tương tự:
+
+PlanActivity
+     ↓
+Claude Agent SDK
+
+và:
+
+ReviewActivity
+     ↓
+Claude Agent SDK
+14. Tôi không khuyên đưa Claude vào ngay
+
+Có một lý do rất rõ.
+
+Nếu PoC thất bại:
+
+Temporal
++
+Claude SDK
++
+MCP
++
+Agent
++
+Prompt
++
+Tool
+
+thì rất khó biết lỗi nằm ở đâu.
+
+Nếu test theo thứ tự:
+
+1. Temporal
+2. Activity
+3. Retry
+4. Crash recovery
+5. Human approval
+6. Reject/retry
+7. Claude SDK
+8. MCP
+
+thì mỗi bước chỉ kiểm tra một vấn đề.
+
+15. Sau Claude mới thêm MCP
+
+Architecture:
+
+Temporal
+   │
+   ▼
+Analyze Activity
+   │
+   ▼
+Claude Agent SDK
+   │
+   ▼
+MCP
+   │
+   ├── GitHub
+   ├── Codebase
+   └── Documentation
+
+Sau đó Develop:
+
+Temporal
+   │
+   ▼
+Develop Activity
+   │
+   ▼
+Claude Agent SDK
+   │
+   ▼
+MCP
+   │
+   ├── Git
+   ├── DEV
+   ├── Build
+   └── Test
+
+Production vẫn:
+
+Claude
+   │
+   ▼
+MCP
+   │
+   ▼
+Production READ ONLY
+
+Production write vẫn phải đi qua:
+
+Human Approval
+       ↓
+Harness
+       ↓
+Controlled Production Change Service
+16. PoC cuối cùng
+
+Sau khi từng bước pass, workflow PoC sẽ là:
+
+                         HUMAN
+                           │
+                           │ Approval
+                           ▼
+                    ┌─────────────┐
+                    │   Temporal  │
+                    └──────┬──────┘
+                           │
+                           ▼
+                    Analyze Activity
+                           │
+                           ▼
+                     Analyze Agent
+                           │
+                           ▼
+                  Analyze Review Agent
+                           │
+                    ┌──────┴──────┐
+                    │             │
+                  REJECT         PASS
+                    │             │
+                    └──────►      ▼
+                              Plan Activity
+                                   │
+                                   ▼
+                               Plan Agent
+                                   │
+                                   ▼
+                            Human Approval
+                                   │
+                                   ▼
+                                DONE
+17. Checklist để đánh giá Temporal PoC
+
+Tôi đề nghị không chuyển sang architecture thật cho đến khi tất cả các test này pass:
+
+Test	Expected
+Start workflow	PASS
+Activity execution	PASS
+Activity retry	PASS
+Activity timeout	PASS
+Worker crash	Workflow resumes
+Worker restart	Workflow continues
+Temporal restart	Workflow survives
+Review reject	Workflow loops correctly
+Human approval	Workflow pauses
+Human approval after long wait	Workflow resumes
+Human reject	Workflow follows defined path
+Workflow history	Có đầy đủ audit trail
+Multiple workflows	Chạy độc lập
+Concurrent workflows	Không interfere
+Claude Activity	PASS
+Claude Activity failure	Retry/recovery
+MCP call	PASS
+Claude + MCP + Temporal	PASS
+18. Tôi đề xuất thứ tự implementation cụ thể
+
+Đừng làm 18 thứ cùng lúc. Chia thành 4 milestone:
+
+Milestone 1 — Temporal fundamentals
+Temporal Server
+     ↓
+Python Worker
+     ↓
+Workflow
+     ↓
+Activities
+
+Không AI.
+
+Milestone 2 — Durable behavior
+Retry
+Timeout
+Worker Crash
+Temporal Restart
+Long-running Workflow
+Milestone 3 — Human-in-the-loop
+Analyze
+   ↓
+Review
+   ↓
+Human Approval
+   ↓
+Plan
+
+Test:
+
+PASS
+REJECT
+WAIT
+RESTART
+RESUME
+Milestone 4 — AI integration
+Temporal
+   ↓
+Activity
+   ↓
+Claude Agent SDK
+   ↓
+MCP
+
+Sau milestone 4, chúng ta mới có thể đánh giá một cách thực tế:
+
+Temporal + Claude Agent SDK có phải là nền tảng phù hợp cho Agent Harness của hệ thống production management của bạn hay không?
+
+Một lưu ý rất quan trọng về PoC
+
+Tôi muốn chưa thiết kế database schema, Agent Workbench, Skills architecture hay Production MCP ở giai đoạn này.
+
+Chỉ cần chứng minh 5 thứ:
+
+              TEMPORAL POC
+
+                 Workflow
+                    │
+          ┌─────────┼─────────┐
+          ▼         ▼         ▼
+       Activity   Review    Activity
+          │                   │
+          └─────────┬─────────┘
+                    │
+             ┌──────▼──────┐
+             │   Durable   │
+             │   State     │
+             └──────┬──────┘
+                    │
+             Human Approval
+                    │
+                    ▼
+                 Resume
+
+5 câu hỏi cần trả lời:
+
+Temporal có giữ workflow state tốt không?
+Worker crash/restart có recovery đúng không?
+Retry/timeout có phù hợp với Agent Activity không?
+Human approval có thể pause/resume tự nhiên không?
+Claude Agent SDK có thể nằm trong Activity mà không tạo ra vấn đề về durability/determinism không?
+
+Nếu 5 câu này đều YES, lúc đó chúng ta mới thiết kế production-grade Agent Harness.
+
+Nếu bạn muốn thực hiện luôn, bước đầu tiên tôi đề xuất là dựng một Temporal PoC tối thiểu bằng Python trên Windows + Docker, với đúng Analyze → Review → Plan, rồi tôi có thể đi cùng bạn từng command và từng file, sau đó chúng ta cố tình kill Worker để kiểm tra recovery.
+
+Branched from Đề xuất kiến trúc hệ thống
+
+Today 6:49 PM
+tôi đã install temporal server, hãy tạo PoC chi tiết để tôi test
+
+Được. Vì bạn đã chạy Temporal Server thành công, chúng ta có thể bắt đầu PoC ngay trên máy hiện tại.
+
+Tôi đề xuất không đưa Claude SDK vào ngay. PoC đầu tiên sẽ mô phỏng đúng architecture mà chúng ta đã thống nhất:
+
+Request
+   ↓
+Analyze Agent
+   ↓
+Analyze Review Agent
+   ├── REJECT → Analyze lại
+   └── PASS
+        ↓
+Plan Agent
+   ↓
+Human Approval
+   ├── REJECT → Plan lại
+   └── APPROVE
+        ↓
+DONE
+
+Sau khi PoC này hoạt động, chúng ta mới thay các "fake agent" bằng Claude Agent SDK.
+
+Temporal được thiết kế cho durable execution: workflow có thể tiếp tục sau crash, network failure hoặc infrastructure failure.
+
+1. Mục tiêu của PoC
+
+Sau khi hoàn thành, bạn phải test được 7 hành vi:
+
+1. Start workflow
+2. Activity execution
+3. Activity retry
+4. Review REJECT → quay lại phase trước
+5. Worker crash → workflow tiếp tục
+6. Human approval → workflow resume
+7. Temporal restart → workflow vẫn tồn tại
+
+Chúng ta sẽ xây:
+
+temporal-agent-poc/
+│
+├── app/
+│   ├── __init__.py
+│   ├── activities.py
+│   ├── workflows.py
+│   └── worker.py
+│
+├── client.py
+├── approve.py
+├── requirements.txt
+└── README.md
+2. Kiểm tra Temporal Server trước
+
+Bạn đã cài Temporal Server, nên trước tiên kiểm tra:
+
+docker ps
+
+Bạn cần thấy container Temporal đang Up.
+
+Nếu bạn đã expose Temporal frontend port mặc định thì Python client thường kết nối:
+
+localhost:7233
+
+Kiểm tra UI nếu bạn đã chạy Temporal UI:
+
+http://localhost:8233
+
+Nếu bạn đang dùng port custom thì giữ nguyên port mà bạn đã cấu hình.
+
+Ở bước này chưa cần sửa Docker.
+
+3. Tạo project
+
+Trên Windows PowerShell:
+
+mkdir temporal-agent-poc
+cd temporal-agent-poc
+
+mkdir app
+New-Item app\__init__.py
+
+Cấu trúc:
+
+temporal-agent-poc/
+└── app/
+    └── __init__.py
+4. Tạo Python virtual environment
+
+Tôi khuyên dùng Python 3.11 hoặc 3.12 cho PoC.
+
+python -m venv .venv
+
+Activate:
+
+.venv\Scripts\Activate.ps1
+
+Kiểm tra:
+
+python --version
+
+Sau đó:
+
+python -m pip install --upgrade pip
+5. Cài Temporal Python SDK
+
+Tạo:
+
+requirements.txt
+
+Nội dung:
+
+temporalio
+
+Cài:
+
+pip install -r requirements.txt
+
+Kiểm tra:
+
+python -c "import temporalio; print(temporalio.__version__)"
+
+Temporal có SDK chính thức cho Python; documentation hiện tại cung cấp quickstart/developer documentation cho việc xây workflow bằng SDK.
+
+6. Tạo Activities
+
+Tạo:
+
+app/activities.py
+
+Nội dung:
+
+from temporalio import activity
+
+
+@activity.defn
+async def analyze_request(request: str) -> dict:
+    print(f"[Analyze Agent] Processing request: {request}")
+
+    return {
+        "status": "completed",
+        "request": request,
+        "summary": "User wants to change a production management configuration.",
+        "requirements": [
+            "Understand current configuration",
+            "Identify expected new behavior",
+            "Verify impact",
+        ],
+    }
+
+
+@activity.defn
+async def review_analysis(analysis: dict) -> dict:
+    print("[Analyze Review Agent] Reviewing analysis")
+
+    return {
+        "status": "PASS",
+        "reason": "Analysis contains sufficient information for planning.",
+    }
+
+
+@activity.defn
+async def create_plan(analysis: dict) -> dict:
+    print("[Plan Agent] Creating implementation plan")
+
+    return {
+        "status": "completed",
+        "steps": [
+            "Inspect current configuration",
+            "Define required changes",
+            "Implement configuration change",
+            "Run tests",
+            "Verify expected behavior",
+        ],
+    }
+
+Hiện tại đây chưa phải AI Agent.
+
+Chúng chỉ là fake activities.
+
+Điều này là chủ ý.
+
+7. Tạo Workflow
+
+Tạo:
+
+app/workflows.py
+
+Nội dung:
+
+from datetime import timedelta
+
+from temporalio import workflow
+
+with workflow.unsafe.imports_passed_through():
+    from app.activities import (
+        analyze_request,
+        review_analysis,
+        create_plan,
+    )
+
+
+@workflow.defn
+class AgentWorkflow:
+
+    def __init__(self):
+        self.approved = False
+        self.rejected = False
+
+    @workflow.run
+    async def run(self, request: str) -> dict:
+
+        # ==========================================
+        # PHASE 1: ANALYZE
+        # ==========================================
+
+        analysis = await workflow.execute_activity(
+            analyze_request,
+            request,
+            start_to_close_timeout=timedelta(minutes=5),
+        )
+
+        # ==========================================
+        # PHASE 2: ANALYZE REVIEW
+        # ==========================================
+
+        review = await workflow.execute_activity(
+            review_analysis,
+            analysis,
+            start_to_close_timeout=timedelta(minutes=5),
+        )
+
+        if review["status"] != "PASS":
+            return {
+                "status": "REJECTED",
+                "phase": "ANALYZE",
+                "reason": review["reason"],
+            }
+
+        # ==========================================
+        # PHASE 3: PLAN
+        # ==========================================
+
+        plan = await workflow.execute_activity(
+            create_plan,
+            analysis,
+            start_to_close_timeout=timedelta(minutes=5),
+        )
+
+        # ==========================================
+        # PHASE 4: HUMAN APPROVAL
+        # ==========================================
+
+        await workflow.wait_condition(
+            lambda: self.approved or self.rejected
+        )
+
+        if self.rejected:
+            return {
+                "status": "REJECTED",
+                "phase": "HUMAN_APPROVAL",
+            }
+
+        # ==========================================
+        # COMPLETED
+        # ==========================================
+
+        return {
+            "status": "COMPLETED",
+            "analysis": analysis,
+            "plan": plan,
+        }
+
+    @workflow.signal
+    async def approve(self):
+        self.approved = True
+
+    @workflow.signal
+    async def reject(self):
+        self.rejected = True
+
+Đây là phần quan trọng nhất của PoC.
+
+Bạn đang có:
+
+Analyze
+   ↓
+Review
+   ↓
+Plan
+   ↓
+WAIT
+
+Workflow sẽ không exit khi đến wait_condition().
+
+Nó sẽ chờ signal từ bên ngoài.
+
+8. Tạo Worker
+
+Tạo:
+
+app/worker.py
+import asyncio
+
+from temporalio.client import Client
+from temporalio.worker import Worker
+
+from app.workflows import AgentWorkflow
+from app.activities import (
+    analyze_request,
+    review_analysis,
+    create_plan,
+)
+
+
+async def main():
+
+    client = await Client.connect(
+        "localhost:7233"
+    )
+
+    worker = Worker(
+        client,
+        task_queue="agent-poc",
+        workflows=[
+            AgentWorkflow,
+        ],
+        activities=[
+            analyze_request,
+            review_analysis,
+            create_plan,
+        ],
+    )
+
+    print("Temporal Worker started.")
+    print("Task Queue: agent-poc")
+
+    await worker.run()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+Nếu Temporal của bạn đang dùng host/port khác:
+
+Client.connect("YOUR_HOST:YOUR_PORT")
+9. Chạy Worker
+
+Terminal 1:
+
+.venv\Scripts\Activate.ps1
+python -m app.worker
+
+Bạn sẽ thấy:
+
+Temporal Worker started.
+Task Queue: agent-poc
+
+Giữ terminal này chạy.
+
+10. Tạo Client để start Workflow
+
+Tạo:
+
+client.py
+import asyncio
+import uuid
+
+from temporalio.client import Client
+
+from app.workflows import AgentWorkflow
+
+
+async def main():
+
+    client = await Client.connect(
+        "localhost:7233"
+    )
+
+    workflow_id = f"agent-poc-{uuid.uuid4()}"
+
+    result = await client.start_workflow(
+        AgentWorkflow.run,
+        "Change production order approval configuration",
+        id=workflow_id,
+        task_queue="agent-poc",
+    )
+
+    print()
+    print("Workflow started")
+    print("----------------")
+    print(f"Workflow ID: {workflow_id}")
+    print(f"Run ID:      {result.first_execution_run_id}")
+    print()
+    print("Workflow is now running.")
+    print("It will wait for human approval after planning.")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+11. Start Workflow
+
+Terminal 2:
+
+.venv\Scripts\Activate.ps1
+python client.py
+
+Bạn sẽ nhận:
+
+Workflow started
+----------------
+Workflow ID: agent-poc-xxxxxxxx
+
+Workflow is now running.
+It will wait for human approval after planning.
+12. Kiểm tra Temporal UI
+
+Mở:
+
+http://localhost:8233
+
+Bạn sẽ thấy workflow:
+
+agent-poc-xxxxxxxx
+
+Click vào workflow.
+
+Bạn sẽ thấy history đại loại:
+
+WorkflowExecutionStarted
+        ↓
+WorkflowTaskScheduled
+        ↓
+WorkflowTaskStarted
+        ↓
+ActivityTaskScheduled
+        ↓
+ActivityTaskStarted
+        ↓
+ActivityTaskCompleted
+        ↓
+ActivityTaskScheduled
+        ↓
+ActivityTaskCompleted
+        ↓
+ActivityTaskScheduled
+        ↓
+ActivityTaskCompleted
+        ↓
+WorkflowTaskCompleted
+
+Sau đó workflow sẽ đang RUNNING, không phải COMPLETED.
+
+Đây chính là:
+
+PLAN
+ ↓
+WAITING FOR HUMAN
+13. Tạo Human Approval Client
+
+Tạo:
+
+approve.py
+import asyncio
+import sys
+
+from temporalio.client import Client
+
+
+async def main():
+
+    if len(sys.argv) != 3:
+        print(
+            "Usage: python approve.py <workflow_id> <approve|reject>"
+        )
+        return
+
+    workflow_id = sys.argv[1]
+    action = sys.argv[2]
+
+    client = await Client.connect(
+        "localhost:7233"
+    )
+
+    handle = client.get_workflow_handle(
+        workflow_id
+    )
+
+    if action == "approve":
+
+        await handle.signal("approve")
+
+        print(
+            f"Workflow {workflow_id} approved."
+        )
+
+    elif action == "reject":
+
+        await handle.signal("reject")
+
+        print(
+            f"Workflow {workflow_id} rejected."
+        )
+
+    else:
+
+        print(
+            "Action must be approve or reject."
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+14. Approve Workflow
+
+Lấy Workflow ID từ terminal 2.
+
+Ví dụ:
+
+agent-poc-123456
+
+Chạy:
+
+python approve.py agent-poc-123456 approve
+
+Bạn sẽ thấy:
+
+Workflow agent-poc-123456 approved.
+
+Quay lại Temporal UI.
+
+Workflow sẽ chuyển:
+
+RUNNING
+   ↓
+COMPLETED
+15. Đây chính là Human-in-the-loop đầu tiên
+
+Architecture hiện tại:
+
+                    Temporal
+                       │
+                       ▼
+                  Analyze
+                       │
+                       ▼
+               Analyze Review
+                       │
+                       ▼
+                    Plan
+                       │
+                       ▼
+             ┌──────────────────┐
+             │ HUMAN APPROVAL   │
+             │                  │
+             │ WAITING          │
+             └────────┬─────────┘
+                      │
+                 Signal approve
+                      │
+                      ▼
+                  COMPLETED
+
+Đây là foundation rất quan trọng cho hệ thống thật của bạn.
+
+Sau này approve.py chính là thứ sẽ được thay bằng:
+
+Agent Workbench Web UI
+16. Test Reject
+
+Start workflow mới:
+
+python client.py
+
+Sau khi workflow tới Human Approval:
+
+python approve.py agent-poc-xxxx reject
+
+Workflow sẽ:
+
+RUNNING
+   ↓
+HUMAN REJECT
+   ↓
+COMPLETED
+
+Result sẽ:
+
+{
+  "status": "REJECTED",
+  "phase": "HUMAN_APPROVAL"
+}
+17. Test quan trọng #1 — Worker Crash
+
+Đây là test tôi muốn bạn thực hiện rất kỹ.
+
+Start workflow:
+
+python client.py
+
+Nhưng lần này không approve ngay.
+
+Workflow đang:
+
+ANALYZE
+ ↓
+REVIEW
+ ↓
+PLAN
+ ↓
+WAITING
+
+Bây giờ terminate Worker:
+
+Ctrl + C
+
+Worker chết.
+
+Nhưng Temporal Server vẫn chạy.
+
+Mở Temporal UI.
+
+Bạn sẽ thấy workflow vẫn tồn tại.
+
+18. Restart Worker
+
+Chạy lại:
+
+python -m app.worker
+
+Worker reconnect Temporal.
+
+Workflow vẫn đang:
+
+WAITING_FOR_HUMAN
+
+Sau đó:
+
+python approve.py agent-poc-xxxx approve
+
+Workflow tiếp tục và complete.
+
+Đây là test rất quan trọng.
+
+Bạn vừa chứng minh:
+
+Worker != Workflow state
+
+Workflow state nằm ở Temporal.
+
+Worker chỉ là execution process.
+
+Đây chính là lý do chúng ta đang xem Temporal như Harness.
+
+19. Test quan trọng #2 — Crash giữa Activity
+
+Chúng ta sẽ làm test này sau khi PoC cơ bản chạy.
+
+Sửa analyze_request():
+
+import asyncio
+
+@activity.defn
+async def analyze_request(request: str) -> dict:
+
+    print("[Analyze Agent] START")
+
+    await asyncio.sleep(30)
+
+    print("[Analyze Agent] FINISH")
+
+    return {
+        "status": "completed",
+        "request": request,
+    }
+
+Start workflow.
+
+Trong 30 giây đó:
+
+Worker
+  │
+  └── Analyze Activity
+          │
+          │ 30 seconds
+          ▼
+
+Kill Worker.
+
+Sau đó start Worker lại.
+
+Đây là lúc chúng ta bắt đầu kiểm tra semantics thực sự của Activity execution và retry.
+
+Lưu ý: đừng vội kết luận rằng Activity "chắc chắn chỉ chạy một lần" khi worker crash. Với side effect, bạn phải thiết kế idempotency; durable workflow không đồng nghĩa mọi external side effect tự động trở thành exactly-once. Đây sẽ là một phần quan trọng khi chúng ta đưa Claude/Git/CI vào.
+
+20. Test quan trọng #3 — Review REJECT → Analyze lại
+
+PoC hiện tại mới có:
+
+Analyze
+ ↓
+Review
+ ↓
+PASS
+
+Tôi muốn sửa thành:
+
+Analyze
+ ↓
+Review
+ ├── PASS ───────→ Plan
+ │
+ └── REJECT
+        │
+        ▼
+     Analyze
+
+Concept:
+
+while True:
+
+    analysis = analyze()
+
+    review = review_analysis()
+
+    if review.status == "PASS":
+        break
+
+    analysis = analyze_again()
+
+Nhưng đừng dùng Python loop vô hạn với Activity state theo cách tùy tiện; chúng ta sẽ thiết kế loop trong Temporal Workflow một cách deterministic.
+
+Workflow history sẽ thể hiện:
+
+Analyze #1
+Review #1 → REJECT
+
+Analyze #2
+Review #2 → PASS
+
+Plan #1
+
+Đây chính là pattern bạn sẽ dùng sau này:
+
+Develop
+   ↓
+Develop Review
+   ↓
+REJECT
+   ↓
+Develop again
+21. Sau khi PoC trên pass: đưa Claude SDK vào
+
+Khi Temporal PoC hoàn toàn ổn, chúng ta mới thay:
+
+analyze_request()
+
+bằng:
+
+analyze_request()
+        │
+        ▼
+Claude Agent SDK
+        │
+        ├── Claude
+        ├── Skills
+        └── MCP
+
+Architecture:
+
+Temporal Workflow
+        │
+        ▼
+Analyze Activity
+        │
+        ▼
+Claude Agent SDK
+        │
+        ▼
+Claude
+        │
+        ▼
+AnalysisResult
+
+Temporal Workflow không trực tiếp gọi Claude.
+
+Đây là boundary tôi muốn giữ.
+
+22. Sau đó đưa Review Agent vào
+
+Lúc đó:
+
+Temporal
+   │
+   ▼
+Analyze Activity
+   │
+   ▼
+Claude Analyze Agent
+   │
+   ▼
+AnalysisResult
+   │
+   ▼
+Analyze Review Activity
+   │
+   ▼
+Claude Review Agent
+   │
+   ▼
+ReviewResult
+
+ReviewResult có thể có schema:
+
+{
+  "status": "PASS",
+  "issues": [],
+  "missing_information": [],
+  "confidence": "high"
+}
+
+hoặc:
+
+{
+  "status": "REJECT",
+  "issues": [
+    "Expected behavior is not clearly defined"
+  ],
+  "missing_information": [
+    "Which production line is affected?"
+  ]
+}
+
+Sau này chính missing_information có thể trigger:
+
+Review
+ ↓
+Need clarification
+ ↓
+Human
+ ↓
+Workflow resume
+ ↓
+Analyze again
+
+Đây mới chính là architecture gần với production system của bạn.
+
+23. PoC phase tiếp theo sẽ có 3 loại Human interaction
+
+Sau khi basic PoC pass, tôi muốn chúng ta test 3 loại:
+
+A. Approval
+Plan
+ ↓
+Human
+ ↓
+APPROVE
+ ↓
+Develop
+B. Rejection
+Plan
+ ↓
+Human
+ ↓
+REJECT
+ ↓
+Plan again
+C. Clarification
+Analyze
+ ↓
+Review
+ ↓
+Need information
+ ↓
+Human
+ ↓
+User provides information
+ ↓
+Analyze again
+
+Cái C đặc biệt quan trọng vì nó phản ánh yêu cầu ban đầu của bạn:
+
+AI phải có khả năng contact user để làm rõ request.
+
+24. Sau đó mới xây Work Item
+
+Khi workflow mechanics đã ổn, chúng ta sẽ đổi từ:
+
+request: str
+
+thành một WorkItem.
+
+Ví dụ:
+
+{
+  "work_item_id": "REQ-2026-0001",
+  "request": "...",
+  "requester": "...",
+  "status": "ANALYZING",
+  "phase": "ANALYZE"
+}
+
+Temporal Workflow:
+
+REQ-2026-0001
+       │
+       ▼
+Workflow ID
+
+Sau này Agent Workbench chỉ cần:
+
+GET Work Item
+       ↓
+Temporal Workflow state
+       ↓
+Artifacts
+       ↓
+Human action
+25. Thứ tự tôi muốn bạn thực hiện ngay bây giờ
+
+Đừng làm tất cả một lúc.
+
+Phase A — hôm nay
+
+Chỉ làm:
+
+Temporal Server
+      ↓
+Python SDK
+      ↓
+Worker
+      ↓
+Workflow
+      ↓
+Analyze
+      ↓
+Review
+      ↓
+Plan
+      ↓
+WAIT
+      ↓
+Approve
+      ↓
+Complete
+
+Nếu chạy được, báo cho tôi:
+
+Temporal Server: PASS
+Worker: PASS
+Workflow: PASS
+Analyze: PASS
+Review: PASS
+Plan: PASS
+Human Approval: PASS
+Phase B
+
+Sau đó chúng ta test:
+
+Worker crash
+Temporal restart
+Activity retry
+Activity timeout
+Review reject
+Workflow loop
+Phase C
+
+Sau đó:
+
+Claude Agent SDK
+Phase D
+
+Sau đó:
+
+MCP
+Phase E
+
+Cuối cùng:
+
+Agent Workbench
+Một lưu ý về setup hiện tại của bạn
+
+Từ context trước đó, bạn đã chạy Temporal Server 1.32.0 bằng Docker. Nếu đúng là instance đó vẫn đang chạy, không cần cài lại Temporal Server. Chúng ta chỉ cần xác định chính xác:
+
+Temporal frontend:
+HOST = ?
+PORT = ?
+
+Thông thường sẽ là:
+
+localhost:7233
+
+và UI:
+
+localhost:8233
+
+nhưng nếu bạn đã custom port thì tôi sẽ dùng đúng port của bạn.
+
+Bước tiếp theo tốt nhất: hãy chạy docker ps và gửi cho tôi output của container Temporal (đặc biệt là phần PORTS). Tôi sẽ dựa đúng vào instance Temporal bạn đang chạy và hướng dẫn bạn tạo PoC Phase A từng file, từng command, tránh việc bạn phải tự điều chỉnh giữa các phiên bản.
+
+thay vì chi tạo poc, hãy tạo một version cho production
+
+Đúng. Với hệ thống của bạn, tôi nghĩ không nên làm một PoC “đồ chơi” rồi sau đó vứt đi để viết lại production. Tốt hơn là xây ngay một Production Foundation: cấu trúc, workflow contract, error handling, retry, persistence, human approval, observability và security đều theo hướng production; sau đó mới thay từng Activity giả bằng Claude Agent SDK/MCP/Skills.
+
+Temporal phù hợp với hướng này vì Workflow có thể tiếp tục sau crash, network failure hoặc infrastructure outage.
+
+Tôi đề xuất chúng ta xây version đầu tiên như sau.
+
+1. Production version mà tôi đề xuất
+
+Không phải:
+
+Client
+  ↓
+Temporal Workflow
+  ↓
+Activity
+  ↓
+Claude
+
+mà là:
+
+                    ┌─────────────────────────────┐
+                    │      Agent Workbench        │
+                    │          Web UI              │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │       Agent API             │
+                    │  Authentication / RBAC      │
+                    │  Request validation         │
+                    └──────────────┬──────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │          Temporal            │
+                    │                             │
+                    │ ProductionChangeWorkflow    │
+                    │                             │
+                    │  Analyze                    │
+                    │    ↓                        │
+                    │  Analyze Review              │
+                    │    ↓                        │
+                    │  Clarification               │
+                    │    ↓                        │
+                    │  Plan                        │
+                    │    ↓                        │
+                    │  Plan Review                 │
+                    │    ↓                        │
+                    │  Human Approval              │
+                    │    ↓                        │
+                    │  Develop                     │
+                    │    ↓                        │
+                    │  Develop Review              │
+                    │    ↓                        │
+                    │  Test                        │
+                    │    ↓                        │
+                    │  Test Review                 │
+                    │    ↓                        │
+                    │  Production Approval         │
+                    │    ↓                        │
+                    │  Deploy                      │
+                    └──────────────┬──────────────┘
+                                   │
+                 ┌─────────────────┼─────────────────┐
+                 │                 │                 │
+                 ▼                 ▼                 ▼
+          Agent Worker       Tool Worker       Deployment Worker
+                 │                 │                 │
+                 ▼                 ▼                 ▼
+          Claude Agent SDK        MCP          CI/CD / GitHub
+                 │
+          ┌──────┴──────┐
+          │             │
+        Skills          MCP
+          │             │
+          ▼             ▼
+       Knowledge      Tools
+
+Điểm quan trọng:
+
+Temporal là workflow engine, không phải AI Agent framework.
+
+Claude Agent SDK chạy bên trong Activity/Worker, không chạy trực tiếp trong Temporal Workflow.
+
+2. Tôi muốn thay PoC trước bằng một Production Foundation
+
+Tôi sẽ tổ chức repository như sau:
+
+production-agent-platform/
+│
+├── apps/
+│   │
+│   ├── agent-api/
+│   │   └── ...
+│   │
+│   ├── agent-worker/
+│   │   └── ...
+│   │
+│   └── workbench/
+│       └── ...
+│
+├── packages/
+│   │
+│   ├── workflows/
+│   │   ├── production_change.py
+│   │   ├── signals.py
+│   │   ├── queries.py
+│   │   └── models.py
+│   │
+│   ├── activities/
+│   │   ├── analyze.py
+│   │   ├── review.py
+│   │   ├── plan.py
+│   │   ├── develop.py
+│   │   ├── test.py
+│   │   └── deploy.py
+│   │
+│   ├── agents/
+│   │   ├── analyze_agent.py
+│   │   ├── analyze_reviewer.py
+│   │   ├── plan_agent.py
+│   │   ├── plan_reviewer.py
+│   │   ├── develop_agent.py
+│   │   └── test_agent.py
+│   │
+│   ├── domain/
+│   │   ├── request.py
+│   │   ├── workflow_state.py
+│   │   ├── approval.py
+│   │   └── artifacts.py
+│   │
+│   ├── infrastructure/
+│   │   ├── temporal.py
+│   │   ├── claude.py
+│   │   ├── github.py
+│   │   └── storage.py
+│   │
+│   └── common/
+│       ├── logging.py
+│       ├── errors.py
+│       └── config.py
+│
+├── skills/
+│   ├── analyze/
+│   ├── planning/
+│   ├── development/
+│   └── testing/
+│
+├── mcp/
+│   ├── github/
+│   ├── filesystem/
+│   ├── test/
+│   └── deployment/
+│
+├── tests/
+│   ├── unit/
+│   ├── workflow/
+│   ├── integration/
+│   └── e2e/
+│
+├── deploy/
+│   ├── docker/
+│   ├── compose/
+│   └── k8s/
+│
+├── pyproject.toml
+├── .env.example
+└── README.md
+
+Không nhất thiết phải tạo toàn bộ ngay từ ngày đầu. Nhưng boundary nên được thiết kế như production ngay từ đầu.
+
+3. Domain model phải được thiết kế trước
+
+Đây là phần tôi muốn thay đổi lớn nhất so với PoC.
+
+Không nên truyền những dictionary tùy ý như:
+
+{
+    "request": "...",
+    "analysis": "...",
+}
+
+Production nên có các model rõ ràng.
+
+Ví dụ:
+
+class ProductionChangeRequest:
+    request_id: str
+    title: str
+    description: str
+
+    requested_by: str
+    created_at: datetime
+
+    priority: str
+    environment: str
+
+    status: str
+
+Workflow state:
+
+class ProductionChangeState:
+    request_id: str
+
+    phase: str
+
+    analysis: AnalysisResult | None
+    analysis_review: ReviewResult | None
+
+    plan: ImplementationPlan | None
+    plan_review: ReviewResult | None
+
+    development: DevelopmentResult | None
+    development_review: ReviewResult | None
+
+    test_result: TestResult | None
+    test_review: ReviewResult | None
+
+    approvals: list[Approval]
+
+    current_artifact_ids: list[str]
+
+    status: str
+
+Như vậy Web UI, Temporal, Agent Worker và database đều có contract thống nhất.
+
+4. Workflow production
+
+Tôi đề xuất Workflow đầu tiên:
+
+ProductionChangeWorkflow
+
+Lifecycle:
+
+CREATED
+   │
+   ▼
+ANALYZING
+   │
+   ▼
+ANALYSIS_REVIEW
+   │
+   ├── NEED_CLARIFICATION ──► WAITING_FOR_USER
+   │                              │
+   │                              └──► ANALYZING
+   │
+   ├── REJECT ──► ANALYZING
+   │
+   └── PASS
+        │
+        ▼
+     PLANNING
+        │
+        ▼
+   PLAN_REVIEW
+        │
+        ├── REJECT ──► PLANNING
+        │
+        └── PASS
+             │
+             ▼
+       HUMAN_APPROVAL
+             │
+       ┌─────┴─────┐
+       │            │
+     REJECT       APPROVE
+       │            │
+       ▼            ▼
+      END        DEVELOP
+                    │
+                    ▼
+             DEVELOP_REVIEW
+                    │
+                    ├── REJECT
+                    │      │
+                    │      ▼
+                    │   DEVELOP
+                    │
+                    └── PASS
+                         │
+                         ▼
+                       TEST
+                         │
+                         ▼
+                    TEST_REVIEW
+                         │
+                         ├── FAIL → DEVELOP
+                         │
+                         └── PASS
+                              │
+                              ▼
+                    PRODUCTION_APPROVAL
+                              │
+                         ┌────┴────┐
+                         │         │
+                       REJECT    APPROVE
+                         │         │
+                         ▼         ▼
+                        END      DEPLOY
+                                    │
+                                    ▼
+                                  DONE
+
+Đây mới là workflow có giá trị cho hệ thống thật của bạn.
+
+5. Human approval phải là first-class concept
+
+Đây là requirement rất quan trọng của hệ thống bạn.
+
+Không nên làm:
+
+await workflow.wait_condition(...)
+
+một cách đơn giản rồi coi đó là approval system.
+
+Production nên có:
+
+Approval
+──────────────
+approval_id
+workflow_id
+request_id
+
+approval_type
+    PLAN
+    PRODUCTION_DEPLOYMENT
+
+requested_from
+
+requested_at
+
+decision
+    PENDING
+    APPROVED
+    REJECTED
+
+decided_by
+decided_at
+
+comment
+
+version
+
+Ví dụ:
+
+Production Change #PC-10293
+
+Current phase:
+    PRODUCTION_APPROVAL
+
+Requested by:
+    operator01
+
+Plan:
+    Change production order approval configuration
+
+Risk:
+    Medium
+
+Affected system:
+    Production Management System
+
+Test:
+    PASS
+
+Reviewer:
+    PASS
+
+Waiting for:
+    User approval
+
+User bấm:
+
+[ Approve Production Change ]
+[ Reject ]
+
+Web UI gửi command/signal vào Temporal.
+
+6. Approval phải chống double-submit
+
+Đây là một trong những khác biệt giữa PoC và production.
+
+Ví dụ user bấm:
+
+Approve
+
+hai lần.
+
+Không được xảy ra:
+
+approval #1 = APPROVED
+approval #2 = APPROVED
+deployment triggered twice
+
+Workflow phải đảm bảo approval transition hợp lệ:
+
+PENDING
+   │
+   ├── APPROVED
+   │
+   └── REJECTED
+
+Một approval đã:
+
+APPROVED
+
+thì không thể chuyển ngược về:
+
+PENDING
+
+hoặc:
+
+REJECTED
+7. Review Agent cũng phải có contract
+
+Không nên để reviewer trả:
+
+"Looks good"
+
+Production phải có structured result:
+
+class ReviewResult:
+    decision: Literal[
+        "PASS",
+        "REJECT",
+        "NEED_CLARIFICATION"
+    ]
+
+    summary: str
+
+    findings: list[Finding]
+
+    evidence: list[Evidence]
+
+    confidence: float
+
+    reviewer_version: str
+
+Ví dụ:
+
+{
+  "decision": "REJECT",
+  "summary": "The proposed change does not cover rollback behavior.",
+  "findings": [
+    {
+      "severity": "HIGH",
+      "category": "MISSING_ROLLBACK",
+      "description": "No rollback procedure was defined."
+    }
+  ],
+  "evidence": [
+    {
+      "type": "repository",
+      "path": "approval/config.py",
+      "line": 182
+    }
+  ],
+  "reviewer_version": "analysis-reviewer-v1"
+}
+
+Điều này cực kỳ quan trọng để tránh:
+
+LLM nói PASS
+
+nhưng không biết tại sao PASS.
+
+8. Artifact phải được lưu riêng
+
+Không nên nhét toàn bộ source code / log / output lớn vào Temporal Workflow history.
+
+Temporal nên giữ:
+
+workflow state
+IDs
+metadata
+small structured results
+
+Còn artifact lưu ở:
+
+Artifact Storage
+
+Ví dụ:
+
+artifacts/
+    PC-10293/
+        analysis.json
+        analysis-review.json
+        plan.md
+        development.patch
+        test-report.json
+        deployment-report.json
+
+Workflow chỉ giữ:
+
+analysis_artifact_id
+plan_artifact_id
+test_report_artifact_id
+
+Điều này giúp Workflow History không phình quá lớn.
+
+9. Agent layer
+
+Agent không nên nằm trong Workflow.
+
+Kiến trúc:
+
+Temporal Workflow
+        │
+        ▼
+AnalyzeActivity
+        │
+        ▼
+AnalyzeAgent
+        │
+        ├── Claude Agent SDK
+        │
+        ├── Skills
+        │
+        └── MCP
+
+Ví dụ:
+
+@activity.defn
+async def analyze_request(
+    request: ProductionChangeRequest,
+) -> AnalysisResult:
+
+    agent = AnalyzeAgent()
+
+    result = await agent.run(
+        request=request
+    )
+
+    return result
+
+Agent:
+
+class AnalyzeAgent:
+
+    async def run(
+        self,
+        request: ProductionChangeRequest,
+    ) -> AnalysisResult:
+
+        return await claude_agent.run(...)
+
+Sau này:
+
+AnalyzeAgent
+    ↓
+Claude Agent SDK
+    ↓
+Skills
+    ↓
+MCP
+    ├── repository
+    ├── GitHub
+    ├── documentation
+    └── system APIs
+10. Không cho Claude trực tiếp truy cập production DB
+
+Tôi vẫn giữ nguyên quyết định trước đây của bạn.
+
+Không:
+
+Claude
+   ↓
+Production DB
+
+Mà:
+
+Claude
+   ↓
+MCP
+   ↓
+Controlled Tool
+   ↓
+Production Service/API
+
+Ví dụ:
+
+Production Configuration Change
+
+Agent không được:
+
+UPDATE production_config ...
+
+Thay vào đó:
+
+apply_configuration_change(
+    change_id="..."
+)
+
+Tool kiểm tra:
+
+1. Authentication
+2. Authorization
+3. Approval exists?
+4. Correct environment?
+5. Change version?
+6. Idempotency key?
+7. Audit log?
+8. Execute
+11. Idempotency là bắt buộc
+
+Temporal có retry.
+
+Ví dụ:
+
+DeployActivity
+    ↓
+deployment succeeds
+    ↓
+network timeout
+    ↓
+Temporal thinks Activity failed
+    ↓
+retry
+
+Nếu deploy operation không idempotent:
+
+deploy #1
+deploy #2
+
+có thể xảy ra.
+
+Do đó mọi side-effect Activity phải có:
+
+idempotency_key
+
+Ví dụ:
+
+PC-10293:deploy:v3
+
+Deployment service kiểm tra:
+
+if idempotency_key already processed:
+    return previous result
+
+Temporal giúp workflow có durable execution, nhưng không tự biến external side effects thành exactly-once. Đây là boundary rất quan trọng khi thiết kế production.
+
+12. Retry policy
+
+Production không nên để retry mặc định một cách mơ hồ.
+
+Ví dụ:
+
+RetryPolicy(
+    initial_interval=timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=5),
+    maximum_attempts=5,
+)
+
+Nhưng phải phân loại lỗi.
+
+Retryable
+network timeout
+temporary API failure
+LLM provider unavailable
+GitHub temporary unavailable
+Non-retryable
+invalid request
+permission denied
+invalid configuration
+security violation
+user rejected
+review rejected
+
+Ví dụ:
+
+ApplicationError(
+    "Production approval required",
+    non_retryable=True,
+)
+13. Timeout cũng phải explicit
+
+Mỗi Activity cần:
+
+schedule_to_close_timeout
+start_to_close_timeout
+heartbeat_timeout
+
+Ví dụ:
+
+Analyze
+    start_to_close: 10 min
+
+Develop
+    start_to_close: 60 min
+
+E2E Test
+    start_to_close: 30 min
+
+Deploy
+    start_to_close: 15 min
+
+Đừng dùng một timeout cho tất cả Activities.
+
+14. Worker architecture
+
+Tôi không khuyến nghị một Worker duy nhất cho production.
+
+Tách:
+
+agent-worker
+    ├── Analyze
+    ├── Review
+    ├── Plan
+    └── Develop
+
+test-worker
+    └── Test Activities
+
+deployment-worker
+    └── Deployment Activities
+
+Task queues:
+
+agent-analysis
+agent-planning
+agent-development
+
+testing
+
+deployment
+
+Ví dụ:
+
+Temporal
+   │
+   ├── agent-analysis
+   │       └── Analysis Workers × N
+   │
+   ├── agent-development
+   │       └── Development Workers × N
+   │
+   ├── testing
+   │       └── Test Workers × N
+   │
+   └── deployment
+           └── Deployment Workers × N
+
+Lợi ích:
+
+Nếu Development Agent bị tải cao:
+
+agent-development
+
+có thể scale riêng.
+
+Không ảnh hưởng:
+
+deployment
+15. Worker không nên chứa state
+
+Worker nên gần như stateless:
+
+Worker
+  ↓
+execute Activity
+  ↓
+return result
+
+Không:
+
+Worker memory
+    ↓
+important workflow state
+
+Nếu Worker chết:
+
+Worker #1 DEAD
+
+Temporal
+   ↓
+Task queue
+   ↓
+Worker #2
+
+Workflow vẫn tiếp tục.
+
+Đây chính là một trong các giá trị cốt lõi của Temporal.
+
+16. Production observability
+
+Ngay từ version đầu nên có:
+
+structured logging
+metrics
+tracing
+audit
+
+Mọi log phải có:
+
+workflow_id
+run_id
+request_id
+activity_id
+phase
+agent
+
+Ví dụ:
+
+{
+  "timestamp": "...",
+  "level": "INFO",
+  "workflow_id": "PC-10293",
+  "run_id": "...",
+  "phase": "ANALYSIS",
+  "agent": "analyze-agent",
+  "event": "analysis_completed"
+}
+
+Khi user báo:
+
+"PC-10293 bị lỗi"
+
+ta có thể trace:
+
+PC-10293
+    │
+    ├── Analyze
+    ├── Analyze Review
+    ├── Plan
+    ├── Approval
+    ├── Develop
+    ├── Test
+    └── Deploy
+17. Audit log
+
+Đây là thứ tôi đặc biệt khuyến nghị cho hệ thống factory.
+
+Ví dụ:
+
+AUDIT
+
+2026-09-21 21:10
+USER john
+created request PC-10293
+
+2026-09-21 21:11
+ANALYZE_AGENT
+completed analysis
+
+2026-09-21 21:12
+ANALYZE_REVIEW_AGENT
+PASS
+
+2026-09-21 21:15
+USER john
+approved implementation plan
+
+2026-09-21 21:30
+DEVELOP_AGENT
+created commit abc123
+
+2026-09-21 21:45
+TEST_AGENT
+PASS
+
+2026-09-21 22:00
+USER john
+approved production deployment
+
+2026-09-21 22:01
+DEPLOYMENT_WORKER
+deployment started
+
+2026-09-21 22:03
+DEPLOYMENT_WORKER
+deployment completed
+
+Sau này đây sẽ là một phần cực kỳ quan trọng của Agent Workbench.
+
+18. Versioning
+
+Đây là điểm nhiều PoC bỏ qua nhưng hệ thống của bạn không nên bỏ qua.
+
+Phải version:
+
+Workflow version
+Agent version
+Prompt version
+Skill version
+MCP tool version
+Configuration version
+Artifact version
+
+Ví dụ:
+
+workflow:       production-change-v3
+agent:          analyze-agent-v2
+prompt:         analyze-prompt-v7
+skill:           factory-analysis-v4
+
+Nếu sau 3 tháng xảy ra:
+
+"Tại sao AI đưa ra quyết định này?"
+
+ta phải reconstruct được:
+
+request
++
+agent version
++
+prompt version
++
+skill version
++
+MCP result
++
+review result
+19. Một điểm rất quan trọng: Workflow versioning
+
+Không được tùy tiện sửa Workflow đang chạy.
+
+Ví dụ hôm nay:
+
+ProductionChangeWorkflow v1
+
+đang có 100 workflows running.
+
+Bạn deploy:
+
+ProductionChangeWorkflow v2
+
+Nếu code thay đổi không tương thích với Workflow History cũ, có thể gây vấn đề determinism/replay.
+
+Do đó production architecture phải có chiến lược:
+
+Workflow versioning
+        +
+Worker deployment strategy
+        +
+Backward compatibility
+
+Đây là một trong những lý do tôi muốn thiết kế framework trước khi chúng ta bắt đầu nhét Claude vào.
+
+20. Database
+
+Tôi đề xuất tách rõ:
+
+Temporal DB
+
+Temporal tự quản lý.
+
+Temporal Server
+      ↓
+PostgreSQL
+Application DB
+
+Do hệ thống của bạn quản lý:
+
+Agent Platform DB
+
+chứa:
+
+production_change_request
+
+approval
+
+artifact_metadata
+
+audit_log
+
+agent_execution
+
+agent_version
+
+workflow_metadata
+
+Không dùng application DB để thay thế Temporal state.
+
+21. Docker production structure
+
+Ở môi trường DEV:
+
+docker compose
+
+Temporal
+PostgreSQL
+Agent API
+Agent Worker
+Test Worker
+Deployment Worker
+Agent UI
+
+Ví dụ:
+
+┌─────────────────────────────────────┐
+│             Docker Host             │
+│                                     │
+│  ┌───────────────┐                  │
+│  │ Agent Workbench│                  │
+│  └───────┬───────┘                  │
+│          │                          │
+│  ┌───────▼───────┐                  │
+│  │   Agent API   │                  │
+│  └───────┬───────┘                  │
+│          │                          │
+│  ┌───────▼───────────────┐          │
+│  │       Temporal        │          │
+│  └───────┬───────────────┘          │
+│          │                          │
+│     ┌────┼─────┬───────┐            │
+│     ▼    ▼     ▼       ▼            │
+│   Agent Test Deploy  ... Workers     │
+│                                     │
+│  PostgreSQL                          │
+│  Application DB                      │
+└─────────────────────────────────────┘
+
+Production thực tế có thể tách các service thành các host/container deployment riêng.
+
+22. Điều tôi muốn bạn test đầu tiên
+
+Không phải:
+
+"Claude có thể trả lời câu hỏi không?"
+
+Mà là Temporal reliability.
+
+Test matrix:
+
+Test 1 — Normal execution
+Request
+→ Analyze
+→ Review
+→ Plan
+→ Approval
+→ Done
+Test 2 — Worker crash
+Workflow
+    ↓
+waiting approval
+
+kill Worker
+
+restart Worker
+
+approve
+
+→ workflow continues
+Test 3 — Activity crash
+Analyze Activity
+    ↓
+crash
+
+Temporal
+    ↓
+retry
+
+Analyze Activity
+    ↓
+success
+Test 4 — Worker unavailable
+Workflow
+    ↓
+Activity task
+
+Workers = 0
+
+start worker
+
+→ task executes
+Test 5 — Duplicate approval
+Approve
+Approve
+
+→ only one valid state transition
+Test 6 — Reject
+Plan
+ ↓
+Review
+ ↓
+REJECT
+ ↓
+Plan again
+Test 7 — Human waits 24 hours
+Workflow
+    ↓
+WAITING_FOR_APPROVAL
+
+Worker restart
+Temporal restart
+
+24h later
+
+Approve
+
+→ continue
+
+Đây mới là những test chứng minh Temporal architecture của bạn có giá trị.
+
+23. Sau đó mới đưa Claude vào
+
+Tôi sẽ triển khai theo thứ tự:
+
+PHASE 1
+Temporal Production Foundation
+        ↓
+PHASE 2
+Workflow + Human Approval
+        ↓
+PHASE 3
+Agent abstraction
+        ↓
+PHASE 4
+Claude Agent SDK
+        ↓
+PHASE 5
+Skills
+        ↓
+PHASE 6
+MCP
+        ↓
+PHASE 7
+GitHub integration
+        ↓
+PHASE 8
+DEV build/test
+        ↓
+PHASE 9
+Agent Workbench
+        ↓
+PHASE 10
+CI/CD
+        ↓
+PHASE 11
+Production deployment
+
+Không nên bắt đầu bằng MCP hay Claude.
+
+Nếu Temporal foundation không đúng, sau này Agent SDK + MCP + Skills sẽ làm hệ thống phức tạp hơn rất nhiều.
+
+24. Một thay đổi lớn so với PoC trước
+
+PoC trước của tôi có:
+
+client.py
+approve.py
+worker.py
+workflow.py
+activities.py
+
+Tôi không khuyến nghị tiếp tục cấu trúc đó nếu mục tiêu thật sự là production.
+
+Thay vào đó:
+
+Agent Platform
+│
+├── API
+│
+├── Workflows
+│
+├── Activities
+│
+├── Agents
+│
+├── Domain
+│
+├── Infrastructure
+│
+├── Skills
+│
+├── MCP
+│
+├── Workers
+│
+├── Persistence
+│
+├── Audit
+│
+├── Observability
+│
+└── Tests
+
+Nhưng ta không cần implement hết ngay.
+
+25. Tôi đề xuất bắt đầu bằng Production Slice #1
+
+Thay vì xây cả hệ thống cùng lúc, ta xây một vertical slice hoàn chỉnh:
+
+User
+ ↓
+Agent API
+ ↓
+Temporal
+ ↓
+Analyze Agent
+ ↓
+Analyze Review Agent
+ ↓
+Human Approval
+ ↓
+Complete
+
+Nhưng mọi component đã có production contract:
+
+Authentication
+Request ID
+Workflow ID
+Typed models
+Structured errors
+Retry policy
+Timeout
+Audit
+Logging
+Signals
+Queries
+Idempotency
+Artifact reference
+Versioning
+Graceful shutdown
+Tests
+Docker
+
+Sau khi slice này chạy ổn, chúng ta không viết lại mà mở rộng:
+
+Analyze
+  ↓
+Plan
+  ↓
+Develop
+  ↓
+Test
+  ↓
+Deploy
+Và một quyết định kiến trúc tôi muốn chốt
+
+Với hệ thống của bạn, tôi sẽ chọn:
+
+                  ┌──────────────────┐
+                  │   Agent Workbench│
+                  └────────┬─────────┘
+                           │
+                           ▼
+                  ┌──────────────────┐
+                  │    Agent API     │
+                  └────────┬─────────┘
+                           │
+                           ▼
+                  ┌──────────────────┐
+                  │     Temporal     │
+                  │ Workflow Engine  │
+                  └────────┬─────────┘
+                           │
+        ┌──────────────────┼───────────────────┐
+        ▼                  ▼                   ▼
+ Analyze Worker      Develop Worker      Test Worker
+        │                  │                   │
+        ▼                  ▼                   ▼
+ Claude Agent SDK   Claude Agent SDK    Claude Agent SDK
+        │                  │                   │
+     Skills              Skills              Skills
+        │                  │                   │
+      MCP                MCP                 MCP
+
+Temporal chịu trách nhiệm orchestration và durability.
+
+Claude Agent SDK chịu trách nhiệm agent reasoning/execution.
+
+MCP chịu trách nhiệm tool boundary.
+
+Skills chịu trách nhiệm domain knowledge/instructions.
+
+Agent API chịu trách nhiệm application boundary.
+
+Agent Workbench chịu trách nhiệm human interaction.
+
+Audit/Artifact Store chịu trách nhiệm evidence và traceability.
+
+Đây là foundation phù hợp với mục tiêu production của hệ thống bạn, thay vì một PoC chỉ để chứng minh Temporal + Python chạy được.
+
+Bước tiếp theo hợp lý nhất là tôi viết cho bạn Production Slice #1 thành một project chạy được thật, gồm toàn bộ source code + pyproject.toml + Docker Compose + PostgreSQL + Temporal + Worker + Agent API + typed workflow + approval + retry/timeout + audit + test cases, nhưng chưa tích hợp Claude/MCP. Sau khi chạy ổn, chúng ta sẽ cắm Claude Agent SDK vào đúng abstraction boundary mà không phải sửa lại Temporal architecture.
